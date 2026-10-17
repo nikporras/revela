@@ -31,6 +31,8 @@
   import type { FormatoExport, InfoFoto, Previa } from './lib/protocolo';
   import {
     LIMITES_MP,
+    avisoCamaraCerrado,
+    cerrarAvisoCamara,
     compartir as compartirArchivo,
     puedeCompartir,
     descargar,
@@ -64,6 +66,9 @@
   let estado = $state<Estado>('cargando');
   let error = $state('');
   let aviso = $state('');
+  /** Aviso de calidad al abrir con Cámara; una vez cerrado, no vuelve a salir. */
+  let avisoCamara = $state(false);
+  let avisoCamaraVisto = avisoCamaraCerrado();
   let info = $state<InfoFoto | null>(null);
   let nombreBase = $state('foto');
   let diag = $state<Diagnostico>({});
@@ -714,7 +719,7 @@
         aviso = `Foto reducida de ${mpx(info.originalWidth, info.originalHeight)} a ${mpx(info.width, info.height)} (límite ${limiteMp} MP).`;
       }
       // El navegador entrega la foto de la cámara comprimida (≈ 1,4 MB a 12 MP en Chrome).
-      if (deCamara) aviso = [aviso, 'Para máxima calidad, toma la foto con la cámara del teléfono y ábrela desde Galería.'].filter(Boolean).join(' ');
+      avisoCamara = deCamara && !avisoCamaraVisto;
       estado = 'lista';
     } catch (e) {
       error = `No se pudo abrir la foto: ${(e as Error).message}`;
@@ -929,6 +934,22 @@
 
   {#if error}<p class="mensaje error" role="alert">{error}</p>{/if}
   {#if aviso}<p class="mensaje" role="status">{aviso}</p>{/if}
+  {#if avisoCamara}
+    <div class="mensaje cerrable" role="status">
+      <p>Para máxima calidad, toma la foto con la cámara del teléfono y ábrela desde Galería.</p>
+      <button
+        class="cerrar"
+        aria-label="Cerrar el aviso"
+        onclick={() => {
+          avisoCamara = false;
+          avisoCamaraVisto = true;
+          cerrarAvisoCamara();
+        }}
+      >
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg>
+      </button>
+    </div>
+  {/if}
 
   {#if info}
     <section class="panel">
@@ -1159,6 +1180,24 @@
   .mensaje {
     margin: 0 16px 8px;
     font-size: 14px;
+    color: var(--texto-2);
+  }
+  .cerrable {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .cerrable p {
+    margin: 0;
+    flex: 1;
+  }
+  .cerrar {
+    flex: none;
+    width: 40px;
+    height: 40px;
+    margin: -8px -8px -8px 0;
+    display: grid;
+    place-items: center;
     color: var(--texto-2);
   }
   .error {
