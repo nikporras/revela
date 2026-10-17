@@ -3,6 +3,7 @@
 //! la expone a JavaScript.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod ajustes;
 pub mod metadata;
 #[cfg(target_arch = "wasm32")]
 mod wasm;
@@ -10,6 +11,7 @@ mod wasm;
 use std::fmt;
 use std::sync::Arc;
 
+use photocraft_algo::camera_raw::{CameraRaw, develop};
 use photocraft_doc::Document;
 use photocraft_engine::Session;
 use serde_json::json;
@@ -127,6 +129,14 @@ impl Editor {
         let imported = photocraft_io::import(name, bytes).map_err(|e| Error(format!("no se pudo abrir la foto: {e}")))?;
         let (ow, oh) = (imported.document.size.width, imported.document.size.height);
         let mut doc = imported.document;
+        // Los ajustes trabajan en RGB de 8 bits: una foto en gris, CMYK, Lab o de 16 bits se
+        // convierte una vez al abrir (los teléfonos ya entregan RGB de 8 bits).
+        if doc.mode != photocraft_doc::ColorMode::Rgb {
+            doc = with_command(doc, "image.mode.rgb", json!({}))?;
+        }
+        if doc.depth != photocraft_doc::SampleType::U8 {
+            doc = with_command(doc, "image.mode.bits8", json!({}))?;
+        }
         if let Some((w, h)) = fit_megapixels(ow, oh, max_megapixels) {
             // Esta reducción es la que se exporta: bicúbico (el motor elige el más nítido).
             doc = resized(doc, w, h, "bicubicAutomatic")?;
@@ -148,34 +158,121 @@ impl Editor {
         self.session.active().map(|d| d.doc.clone()).ok_or_else(|| Error("no hay ninguna foto abierta".into()))
     }
 
-    /// La copia de vista previa, reducida a `max_side` píxeles en su lado mayor si hace falta.
+    /// La copia de vista previa sin ajustes, reducida a `max_side` píxeles en su lado mayor si
+    /// hace falta. Es la textura de la que parte el shader.
     pub fn preview(&self, max_side: u32) -> Result<Preview> {
         let doc = self.preview.clone().ok_or_else(|| Error("no hay ninguna foto abierta".into()))?;
         let img = photocraft_compose::thumbnail(&doc, max_side.max(1));
         Ok(Preview { width: img.width, height: img.height, pixels: img.pixels })
     }
 
-    /// Codifica la foto a resolución de trabajo completa.
-    pub fn export(&self, settings: ExportSettings) -> Result<Vec<u8>> {
-        let doc = self.doc()?;
-        let mut doc = (*doc).clone();
-        doc.metadata = metadata::for_export(&doc.metadata, settings.keep_location);
-        let mut opts = photocraft_io::ExportOptions::default();
-        opts.encode.jpeg_quality = settings.quality.clamp(1, 100);
-        // El XMP puede repetir la ubicación y el historial de edición; Revela no lo necesita.
-        opts.xmp = photocraft_io::XmpEmbed::None;
-        let r = photocraft_io::export(&doc, settings.format.extension(), &opts).map_err(|e| Error(format!("no se pudo exportar: {e}")))?;
-        Ok(r.bytes)
+    /// La misma previa con los ajustes aplicados **por el motor** (lo que hará la exportación).
+    /// Sirve para comprobar que el shader de la GPU da lo mismo.
+    pub fn develop_preview(&self, max_side: u32, ajustes: &CameraRaw) -> Result<Preview> {
+        let mut p = self.preview(max_side)?;
+        let (w, h) = (p.width as usize, p.height as usize);
+        let mut px: Vec<[f32; 4]> = p.pixels.as_chunks::<4>().0.iter().map(|q| q.map(|v| f32::from(v) / 255.0)).collect();
+        develop(&mut px, w, h, ajustes, false);
+        for (o, q) in p.pixels.as_chunks_mut::<4>().0.iter_mut().zip(&px) {
+            for c in 0..3 {
+                o[c] = to_u8(q[c]);
+            }
+        }
+        Ok(p)
     }
+
+    /// Codifica la foto a resolución de trabajo completa con los ajustes. El motor compone la
+    /// foto **por franjas** y revela cada una por separado (los ajustes son por píxel, así que no
+    /// hay costuras): la memoria no pasa de la foto, su salida de 8 bits y una franja.
+    pub fn export(&self, settings: ExportSettings, ajustes: &CameraRaw) -> Result<Vec<u8>> {
+        let doc = self.doc()?;
+        let (w, h) = (doc.size.width as usize, doc.size.height as usize);
+        // Una pasada a RGB (lo transparente, sobre blanco). Solo un PNG con transparencia necesita
+        // una segunda pasada con alfa: así una foto normal ocupa 3 bytes por píxel y no 4 + 3.
+        let (rgb, transparente) = revelar(&doc, ajustes, 3)?;
+        let alpha = transparente && settings.format == ExportFormat::Png;
+        let data = if alpha {
+            drop(rgb);
+            revelar(&doc, ajustes, 4)?.0
+        } else {
+            rgb
+        };
+        let meta = metadata::for_export(&doc.metadata, settings.keep_location);
+        let codec_meta = photocraft_codecs::Metadata {
+            // El códec quiere el bloque TIFF sin el prefijo "Exif\0\0" de JPEG.
+            exif: meta.exif.map(|e| e.strip_prefix(b"Exif\0\0").unwrap_or(&e).to_vec()),
+            dpi: Some((doc.resolution_dpi, doc.resolution_dpi)),
+            ..Default::default()
+        };
+        let layout = if alpha { photocraft_codecs::ChannelLayout::Rgba } else { photocraft_codecs::ChannelLayout::Rgb };
+        let img = photocraft_codecs::Image::from_raw(w as u32, h as u32, layout, photocraft_codecs::SampleType::U8, data)
+            .map_err(|e| Error(format!("no se pudo exportar: {e}")))?
+            .with_icc(doc.icc_profile.as_ref().map(|i| i.to_vec()))
+            .with_meta(codec_meta);
+        let format = match settings.format {
+            ExportFormat::Jpeg => photocraft_codecs::Format::Jpeg,
+            ExportFormat::Png => photocraft_codecs::Format::Png,
+        };
+        let opts = photocraft_codecs::EncodeOptions { jpeg_quality: settings.quality.clamp(1, 100), ..Default::default() };
+        photocraft_codecs::encode(&img, format, &opts).map_err(|e| Error(format!("no se pudo exportar: {e}")))
+    }
+}
+
+/// Filas por franja al exportar: poca memoria (una franja de 4000 px de ancho son ~16 MB en f32).
+const FILAS_FRANJA: i32 = 256;
+
+/// La foto entera compuesta por franjas y revelada con `ajustes`, en 8 bits con `canales` 3 (RGB,
+/// con lo transparente sobre blanco) o 4 (RGBA). Devuelve también si había transparencia.
+fn revelar(doc: &Document, ajustes: &CameraRaw, canales: usize) -> Result<(Vec<u8>, bool)> {
+    let (w, h) = (doc.size.width as usize, doc.size.height as usize);
+    let canvas = doc.bounds();
+    let len = w.checked_mul(h).and_then(|n| n.checked_mul(canales)).ok_or_else(|| Error("foto demasiado grande".into()))?;
+    let mut out = Vec::new();
+    out.try_reserve_exact(len).map_err(|_| Error("no hay memoria para exportar la foto".into()))?;
+    out.resize(len, 0u8);
+    let mut transparente = false;
+    photocraft_compose::render_bands(doc, canvas, FILAS_FRANJA, |mut band| -> Result<()> {
+        let y0 = usize::try_from(band.rect.y0 - canvas.y0).map_err(|_| Error("franja fuera de la foto".into()))?;
+        let n = band.rect.height() as usize;
+        develop(&mut band.px, w, n, ajustes, false);
+        let filas = out.get_mut(y0 * w * canales..(y0 + n) * w * canales).ok_or_else(|| Error("franja fuera de la foto".into()))?;
+        for (o, q) in filas.chunks_exact_mut(canales).zip(&band.px) {
+            let a = to_u8(q[3]);
+            transparente |= a < 255;
+            if canales == 4 {
+                for c in 0..3 {
+                    o[c] = to_u8(q[c]);
+                }
+                o[3] = a;
+            } else {
+                let a = u16::from(a);
+                for c in 0..3 {
+                    o[c] = ((u16::from(to_u8(q[c])) * a + 255 * (255 - a) + 127) / 255) as u8;
+                }
+            }
+        }
+        Ok(())
+    })?;
+    Ok((out, transparente))
+}
+
+/// 0..1 → 0..255, redondeando (como la GPU al escribir un RGBA8).
+fn to_u8(v: f32) -> u8 {
+    (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8
+}
+
+/// `doc` después de un comando del motor que no necesita historial.
+fn with_command(doc: Document, id: &str, params: serde_json::Value) -> Result<Document> {
+    let mut s = Session::new();
+    s.add_document(doc, None);
+    s.execute(id, params).map_err(|e| Error(format!("no se pudo preparar la foto ({id}): {e}")))?;
+    let d = s.close(0).ok_or_else(|| Error(format!("no se pudo preparar la foto ({id})")))?;
+    Ok(Arc::unwrap_or_clone(d.doc))
 }
 
 /// `doc` remuestreado a `w`×`h` por el motor (`image.imageSize` con el método `resample`).
 fn resized(doc: Document, w: u32, h: u32, resample: &str) -> Result<Document> {
-    let mut s = Session::new();
-    s.add_document(doc, None);
-    s.execute("image.imageSize", json!({ "width": w, "height": h, "resample": resample })).map_err(|e| Error(format!("no se pudo cambiar el tamaño de la foto: {e}")))?;
-    let d = s.close(0).ok_or_else(|| Error("no se pudo cambiar el tamaño de la foto".into()))?;
-    Ok(Arc::unwrap_or_clone(d.doc))
+    with_command(doc, "image.imageSize", json!({ "width": w, "height": h, "resample": resample }))
 }
 
 /// El tamaño cuyo lado mayor es `side`, o `None` si ya cabe.

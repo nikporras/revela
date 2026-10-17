@@ -3,7 +3,7 @@
 
 use wasm_bindgen::prelude::*;
 
-use crate::{Editor, ExportFormat, ExportSettings};
+use crate::{Editor, ExportFormat, ExportSettings, Preview, ajustes};
 
 fn js_err(e: crate::Error) -> JsError {
     JsError::new(&e.0)
@@ -38,24 +38,64 @@ impl Revela {
         Ok(o.into())
     }
 
-    /// Vista previa RGBA8. Devuelve `{ width, height, pixels: Uint8ClampedArray }`.
+    /// Vista previa RGBA8 sin ajustes. Devuelve `{ width, height, pixels: Uint8ClampedArray }`.
     pub fn preview(&self, max_side: u32) -> Result<JsValue, JsError> {
-        let p = self.editor.preview(max_side).map_err(js_err)?;
-        let o = js_sys::Object::new();
-        let set = |k: &str, v: JsValue| js_sys::Reflect::set(&o, &JsValue::from_str(k), &v).map(|_| ());
-        let pixels = js_sys::Uint8ClampedArray::from(p.pixels.as_slice());
-        set("width", p.width.into())
-            .and(set("height", p.height.into()))
-            .and(set("pixels", pixels.into()))
-            .map_err(|_| JsError::new("no se pudo preparar la respuesta"))?;
-        Ok(o.into())
+        preview_js(self.editor.preview(max_side).map_err(js_err)?)
     }
 
-    /// Exporta a resolución completa: `format` "jpg" o "png", `quality` 1..100.
-    pub fn export(&self, format: &str, quality: u8, keep_location: bool) -> Result<Vec<u8>, JsError> {
-        let format = ExportFormat::parse(format).map_err(js_err)?;
-        self.editor.export(ExportSettings { format, quality, keep_location }).map_err(js_err)
+    /// La previa con los ajustes aplicados por el motor (para compararla con la GPU).
+    #[wasm_bindgen(js_name = developPreview)]
+    pub fn develop_preview(&self, max_side: u32, ajustes_json: &str) -> Result<JsValue, JsError> {
+        let a = ajustes::sanear(ajustes_json).map_err(js_err)?;
+        preview_js(self.editor.develop_preview(max_side, &a).map_err(js_err)?)
     }
+
+    /// Exporta a resolución completa con los ajustes: `format` "jpg" o "png", `quality` 1..100.
+    pub fn export(&self, format: &str, quality: u8, keep_location: bool, ajustes_json: &str) -> Result<Vec<u8>, JsError> {
+        let format = ExportFormat::parse(format).map_err(js_err)?;
+        let a = ajustes::sanear(ajustes_json).map_err(js_err)?;
+        self.editor.export(ExportSettings { format, quality, keep_location }, &a).map_err(js_err)
+    }
+}
+
+fn preview_js(p: Preview) -> Result<JsValue, JsError> {
+    let o = js_sys::Object::new();
+    let set = |k: &str, v: JsValue| js_sys::Reflect::set(&o, &JsValue::from_str(k), &v).map(|_| ());
+    let pixels = js_sys::Uint8ClampedArray::from(p.pixels.as_slice());
+    set("width", p.width.into())
+        .and(set("height", p.height.into()))
+        .and(set("pixels", pixels.into()))
+        .map_err(|_| JsError::new("no se pudo preparar la respuesta"))?;
+    Ok(o.into())
+}
+
+/// Los parámetros del shader para unos ajustes (ver `ajustes::Gpu`). Los números van en un
+/// `Float32Array` para que la GPU reciba exactamente los `f32` que usa el motor.
+#[wasm_bindgen(js_name = gpuParams)]
+pub fn gpu_params(ajustes_json: &str) -> Result<JsValue, JsError> {
+    let g = ajustes::Gpu::de(&ajustes::sanear(ajustes_json).map_err(js_err)?);
+    let o = js_sys::Object::new();
+    let set = |k: &str, v: JsValue| js_sys::Reflect::set(&o, &JsValue::from_str(k), &v).map(|_| ());
+    let f32s = |v: &[f32]| JsValue::from(js_sys::Float32Array::from(v));
+    let bools = |v: &[bool]| JsValue::from(v.iter().map(|b| JsValue::from_bool(*b)).collect::<js_sys::Array>());
+    let tints: Vec<f32> = g.tints.iter().flatten().copied().collect();
+    set("wb", g.wb.into())
+        .and(set("gain", f32s(&g.gain)))
+        .and(set("contrastK", f32s(&[g.contrast_k])))
+        .and(set("color", g.color.into()))
+        .and(set("satVib", f32s(&[g.saturation, g.vibrance])))
+        .and(set("lutOn", bools(&g.lut_on)))
+        .and(set("luts", f32s(&g.luts)))
+        .and(set("hsl", g.hsl.into()))
+        .and(set("hslHue", f32s(&g.hsl_hue)))
+        .and(set("hslSat", f32s(&g.hsl_sat)))
+        .and(set("hslLum", f32s(&g.hsl_lum)))
+        .and(set("grade", g.grade.into()))
+        .and(set("tints", f32s(&tints)))
+        .and(set("lums", f32s(&g.lums)))
+        .and(set("blendBalance", f32s(&[g.blend, g.balance])))
+        .map_err(|_| JsError::new("no se pudo preparar la respuesta"))?;
+    Ok(o.into())
 }
 
 impl Default for Revela {
