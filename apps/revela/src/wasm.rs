@@ -21,7 +21,7 @@ impl Revela {
         Revela { editor: Editor::new() }
     }
 
-    /// Abre una foto y prepara su copia de vista previa de `preview_side` px. Devuelve `{ width, height, originalWidth, originalHeight, format, warnings }`.
+    /// Abre una foto y prepara su copia de vista previa de `preview_side` px. Devuelve `{ width, height, originalWidth, originalHeight, format, warnings, takenAt }`.
     pub fn open(&mut self, name: &str, bytes: &[u8], max_megapixels: f64, preview_side: u32) -> Result<JsValue, JsError> {
         let info = self.editor.open(name, bytes, max_megapixels, preview_side).map_err(js_err)?;
         let o = js_sys::Object::new();
@@ -33,6 +33,7 @@ impl Revela {
             .and(set("originalHeight", info.original_height.into()))
             .and(set("format", JsValue::from_str(&info.format)))
             .and(set("warnings", warnings.into()))
+            .and(set("takenAt", info.taken_at.as_deref().map_or(JsValue::NULL, JsValue::from_str)))
             .map_err(|_| JsError::new("no se pudo preparar la respuesta"))?;
         Ok(o.into())
     }

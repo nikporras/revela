@@ -14,6 +14,9 @@ use photocraft_doc::Metadata;
 use std::sync::Arc;
 
 const TAG_GPS_IFD: u16 = 0x8825;
+const TAG_EXIF_IFD: u16 = 0x8769;
+const TAG_DATE_TIME_ORIGINAL: u16 = 0x9003;
+const TAG_DATE_TIME: u16 = 0x0132;
 const ENTRY: usize = 12;
 const PREFIX: &[u8] = b"Exif\0\0";
 
@@ -51,6 +54,34 @@ pub fn clean_exif(exif: &[u8], keep_location: bool) -> Option<Vec<u8>> {
     let mut out = prefix.to_vec();
     out.extend_from_slice(&b);
     Some(out)
+}
+
+/// Fecha de captura como `AAAAMMDD_HHMMSS`: `DateTimeOriginal` (IFD EXIF) o, si falta,
+/// `DateTime` (IFD0). `None` si no hay una fecha válida.
+pub fn taken_at(exif: &[u8]) -> Option<String> {
+    let b = exif.strip_prefix(PREFIX).unwrap_or(exif);
+    let t = Tiff::parse(b)?;
+    let ifd0 = t.u32(b, 4)? as usize;
+    let from_exif_ifd = || {
+        let e = t.entry(b, ifd0, TAG_EXIF_IFD)?;
+        let sub = t.u32(b, e.checked_add(8)?)? as usize;
+        format_date(&t.ascii(b, sub, TAG_DATE_TIME_ORIGINAL)?)
+    };
+    from_exif_ifd().or_else(|| format_date(&t.ascii(b, ifd0, TAG_DATE_TIME)?))
+}
+
+/// "AAAA:MM:DD HH:MM:SS" → "AAAAMMDD_HHMMSS". Rechaza fechas vacías ("0000:00:00 …") o mal
+/// formadas.
+fn format_date(s: &str) -> Option<String> {
+    let s = s.trim_end_matches('\0').trim();
+    let (d, h) = s.split_once(' ')?;
+    let d: Vec<&str> = d.split(':').collect();
+    let h: Vec<&str> = h.split(':').collect();
+    let ok = |p: &[&str], lens: &[usize]| p.len() == lens.len() && p.iter().zip(lens).all(|(x, n)| x.len() == *n && x.bytes().all(|c| c.is_ascii_digit()));
+    if !ok(&d, &[4, 2, 2]) || !ok(&h, &[2, 2, 2]) || d.first() == Some(&"0000") {
+        return None;
+    }
+    Some(format!("{}{}{}_{}{}{}", d.first()?, d.get(1)?, d.get(2)?, h.first()?, h.get(1)?, h.get(2)?))
 }
 
 #[derive(Clone, Copy)]
@@ -115,6 +146,25 @@ impl Tiff {
             }
         }
         Some(None)
+    }
+
+    /// Offset de la primera entrada con `tag` en la IFD `ifd`.
+    fn entry(self, b: &[u8], ifd: usize, tag: u16) -> Option<usize> {
+        let i = self.find(b, ifd, tag)??;
+        ifd.checked_add(2)?.checked_add(i.checked_mul(ENTRY)?)
+    }
+
+    /// El texto ASCII de la etiqueta `tag` de la IFD `ifd` (valor en línea si cabe en 4 bytes).
+    fn ascii(self, b: &[u8], ifd: usize, tag: u16) -> Option<String> {
+        let e = self.entry(b, ifd, tag)?;
+        if self.u16(b, e.checked_add(2)?)? != 2 {
+            return None;
+        }
+        let n = self.u32(b, e.checked_add(4)?)? as usize;
+        let at = if n <= 4 { e.checked_add(8)? } else { self.u32(b, e.checked_add(8)?)? as usize };
+        let raw = b.get(at..at.checked_add(n)?)?;
+        let end = raw.iter().position(|&c| c == 0).unwrap_or(raw.len());
+        std::str::from_utf8(raw.get(..end)?).ok().map(str::to_string)
     }
 
     /// Pone a cero los valores fuera de línea de cada entrada y la propia tabla de la IFD. Con
@@ -221,6 +271,45 @@ mod tests {
         assert_eq!(t.find(&out, 8, TAG_GPS_IFD), Some(Some(1)));
         assert!(out.windows(4).any(|w| w == [0xAA; 4]));
         assert!(!out.windows(2).any(|w| w == [0xFF, 0xD8]));
+    }
+
+    /// IFD0 = {DateTime, puntero a IFD EXIF}; IFD EXIF = {DateTimeOriginal}.
+    fn with_dates(original: &[u8; 19]) -> Vec<u8> {
+        let mut b = b"II*\0".to_vec();
+        b.extend(8u32.to_le_bytes());
+        // IFD0 (8..38): DateTime en 38, IFD EXIF en 58
+        b.extend(2u16.to_le_bytes());
+        b.extend([0x32, 0x01, 2, 0, 20, 0, 0, 0, 38, 0, 0, 0]);
+        b.extend([0x69, 0x87, 4, 0, 1, 0, 0, 0, 58, 0, 0, 0]);
+        b.extend(0u32.to_le_bytes());
+        b.extend(b"2026:01:02 03:04:05\0"); // 38..58
+        // IFD EXIF (58..76): DateTimeOriginal en 76
+        b.extend(1u16.to_le_bytes());
+        b.extend([0x03, 0x90, 2, 0, 20, 0, 0, 0, 76, 0, 0, 0]);
+        b.extend(0u32.to_le_bytes());
+        b.extend(original);
+        b.push(0);
+        b
+    }
+
+    #[test]
+    fn taken_at_prefers_date_time_original() {
+        assert_eq!(taken_at(&with_dates(b"2026:10:11 01:18:47")).as_deref(), Some("20261011_011847"));
+        let mut e = PREFIX.to_vec();
+        e.extend(with_dates(b"2026:10:11 01:18:47"));
+        assert_eq!(taken_at(&e).as_deref(), Some("20261011_011847"));
+    }
+
+    #[test]
+    fn taken_at_falls_back_and_rejects_garbage() {
+        // DateTimeOriginal vacío (cámaras sin reloj): se usa DateTime de IFD0.
+        assert_eq!(taken_at(&with_dates(b"0000:00:00 00:00:00")).as_deref(), Some("20260102_030405"));
+        assert_eq!(taken_at(&with_dates(b"2026-10-11 01:18:47")).as_deref(), Some("20260102_030405"));
+        assert_eq!(taken_at(&sample()), None);
+        assert_eq!(taken_at(b"basura"), None);
+        let mut cut = with_dates(b"2026:10:11 01:18:47");
+        cut.truncate(70);
+        assert_eq!(taken_at(&cut).as_deref(), Some("20260102_030405"));
     }
 
     #[test]

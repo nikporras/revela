@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { pedir } from './lib/motor';
+  import { carpetaRecordada, guardarEnCarpeta, nombreBase as elegirNombreBase, soportaCarpeta } from './lib/guardar';
   import type { FormatoExport, InfoFoto } from './lib/protocolo';
   import {
     LIMITES_MP,
@@ -26,6 +27,7 @@
     /** Memoria del wasm (solo crece) después de abrir+previa y después de exportar. */
     memoria?: { abrir?: number; exportar?: number };
     compartir?: string;
+    guardar?: string;
   }
 
   let estado = $state<Estado>('cargando');
@@ -82,7 +84,7 @@
       const previa = await pedir('previa', lado);
       dibujar(previa.valor);
       info = abierto.valor;
-      nombreBase = archivo.name.replace(/\.[^.]+$/, '') || 'foto';
+      nombreBase = elegirNombreBase(archivo.name, info.takenAt);
       diag.abrir = {
         leer: tLeido - t0,
         motor: abierto.ms,
@@ -134,10 +136,30 @@
     else if (r.estado === 'error') avisoHoja = `No se pudo compartir: ${r.detalle}`;
   }
 
-  function guardar() {
+  /** Carpeta donde guarda "Guardar" (si el navegador permite elegirla). */
+  let carpeta = $state<string | undefined>();
+  onMount(async () => {
+    if (soportaCarpeta) carpeta = await carpetaRecordada();
+  });
+
+  async function guardar(elegir = false) {
     if (!exportado) return;
-    descargar(exportado);
-    avisoHoja = `Guardado en Descargas: ${exportado.name}`;
+    avisoHoja = '';
+    if (!soportaCarpeta) {
+      descargar(exportado);
+      avisoHoja = `Guardado en Descargas: ${exportado.name}`;
+      return;
+    }
+    const r = await guardarEnCarpeta(exportado, elegir);
+    diag.guardar = r.estado === 'error' ? `error (${r.detalle})` : r.estado;
+    if (r.estado === 'guardado') {
+      carpeta = r.carpeta;
+      avisoHoja = `Guardado en ${r.carpeta}: ${r.nombre}`;
+    } else if (r.estado === 'error') {
+      // Sin carpeta posible, se descarga para no perder la foto.
+      descargar(exportado);
+      avisoHoja = `No se pudo guardar en la carpeta (${r.detalle}). Se guardó en Descargas.`;
+    }
   }
 
   function cambiarLimite(v: number) {
@@ -167,6 +189,7 @@
     if (d.exportar)
       l.push(`Exportar ${d.exportar.formato.toUpperCase()} q${d.exportar.calidad}: ${ms(d.exportar.ms)} · ${mb(d.exportar.bytes)}`);
     if (d.compartir) l.push(`Compartir: ${d.compartir}`);
+    l.push(`Guardar en carpeta: ${soportaCarpeta ? (d.guardar ?? 'disponible') : 'no disponible (va a Descargas)'}`);
     if (d.memoria?.abrir)
       l.push(
         `Memoria del motor (pico): al abrir ${mb(d.memoria.abrir)}` +
@@ -256,11 +279,21 @@
       <p class="sub">Listo: {exportado.name} · {mb(exportado.size)}</p>
       {#if avisoHoja}<p class="sub aviso-hoja" role="status">{avisoHoja}</p>{/if}
       <div class="acciones">
-        <button class="boton" class:principal={!sePuedeCompartir} onclick={guardar}>Guardar</button>
+        <button class="boton" class:principal={!sePuedeCompartir} onclick={() => guardar()}>Guardar</button>
         {#if sePuedeCompartir}
           <button class="boton principal" onclick={compartir}>Compartir</button>
         {/if}
       </div>
+      {#if soportaCarpeta}
+        <p class="sub carpeta">
+          {#if carpeta}
+            Guarda en la carpeta <b>{carpeta}</b> ·
+            <button class="enlace" onclick={() => guardar(true)}>Cambiar carpeta</button>
+          {:else}
+            La primera vez elige o crea la carpeta <b>Pictures/Revela</b>: la galería la muestra como álbum.
+          {/if}
+        </p>
+      {/if}
     {:else}
       <div class="acciones">
         <button class="boton principal" disabled={ocupado} onclick={exportar}>
@@ -449,6 +482,14 @@
     display: flex;
     gap: 8px;
     margin-top: 16px;
+  }
+  .carpeta {
+    margin-top: 12px;
+  }
+  .enlace {
+    color: var(--acento);
+    text-decoration: underline;
+    padding: 8px 0;
   }
   .aviso-hoja {
     color: var(--texto);

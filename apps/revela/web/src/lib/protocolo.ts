@@ -8,6 +8,8 @@ export interface InfoFoto {
   /** Formato detectado por el contenido ("jpeg", "heif", "png"…). */
   format: string;
   warnings: string[];
+  /** Fecha de captura del EXIF como "AAAAMMDD_HHMMSS", o null. */
+  takenAt: string | null;
 }
 
 export interface Previa {

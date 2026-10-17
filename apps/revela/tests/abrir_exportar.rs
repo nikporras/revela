@@ -100,6 +100,33 @@ fn preview_comes_from_the_reduced_copy_and_export_from_the_full_photo() {
 }
 
 #[test]
+fn reports_the_capture_date_for_naming() {
+    // Un JPG con solo DateTimeOriginal en su IFD EXIF, como el de la cámara de un teléfono.
+    let mut t = b"Exif\0\0II*\0".to_vec();
+    t.extend(8u32.to_le_bytes());
+    t.extend(1u16.to_le_bytes());
+    t.extend([0x69, 0x87, 4, 0, 1, 0, 0, 0, 26, 0, 0, 0]);
+    t.extend(0u32.to_le_bytes());
+    t.extend(1u16.to_le_bytes());
+    t.extend([0x03, 0x90, 2, 0, 20, 0, 0, 0, 44, 0, 0, 0]);
+    t.extend(0u32.to_le_bytes());
+    t.extend(b"2026:10:11 01:18:47\0");
+    let px = vec![0.5f32; 8 * 8 * 3];
+    let img = Image::from_normalized(8, 8, ChannelLayout::Rgb, SampleType::U8, &px).unwrap();
+    let jpeg = photocraft_codecs::encode(&img, Format::Jpeg, &EncodeOptions::default()).unwrap();
+    let mut src = jpeg[..2].to_vec();
+    src.extend([0xFF, 0xE1]);
+    src.extend(((t.len() + 2) as u16).to_be_bytes());
+    src.extend(&t);
+    src.extend(&jpeg[2..]);
+    let mut ed = Editor::new();
+    let info = ed.open("1000205213.jpg", &src, 24.0, 2048).unwrap();
+    assert_eq!(info.taken_at.as_deref(), Some("20261011_011847"));
+    // Sin EXIF no hay fecha.
+    assert_eq!(ed.open("x.jpg", &jpeg, 24.0, 2048).unwrap().taken_at, None);
+}
+
+#[test]
 fn garbage_is_an_error_not_a_crash() {
     let mut ed = Editor::new();
     assert!(ed.open("x.jpg", b"no es una foto", 24.0, 2048).is_err());

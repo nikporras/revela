@@ -41,6 +41,9 @@ pub struct PhotoInfo {
     pub format: String,
     /// Avisos del motor al abrir (cosas aproximadas o ignoradas).
     pub warnings: Vec<String>,
+    /// Fecha y hora de captura del EXIF como `AAAAMMDD_HHMMSS` (el nombre que pone la cámara de
+    /// Samsung), para nombrar la exportación cuando el navegador entrega un nombre sin sentido.
+    pub taken_at: Option<String>,
 }
 
 impl PhotoInfo {
@@ -137,7 +140,8 @@ impl Editor {
         };
         self.session.add_document(doc, None);
         self.preview = Some(Arc::new(preview));
-        Ok(PhotoInfo { width: w, height: h, original_width: ow, original_height: oh, format, warnings: imported.warnings })
+        let taken_at = self.doc()?.metadata.exif.as_deref().and_then(|e| metadata::taken_at(e));
+        Ok(PhotoInfo { width: w, height: h, original_width: ow, original_height: oh, format, warnings: imported.warnings, taken_at })
     }
 
     fn doc(&self) -> Result<Arc<Document>> {
