@@ -69,6 +69,14 @@ jobs:
           npm run check
           npm run build
 
+      # Bloquea el despliegue si la previa (shader de la GPU) y la exportación (motor) difieren en
+      # más de 1/255 o si la GPU aplana los degradados (bandas). Ver web/pruebas/igualdad.mjs.
+      - name: Prueba de igualdad previa / exportación
+        working-directory: apps/revela/web
+        run: |
+          npx playwright install --with-deps chromium-headless-shell
+          npm run prueba:igualdad
+
       - name: Tamaño del wasm
         run: |
           wasm=$(ls apps/revela/web/dist/assets/*.wasm)
