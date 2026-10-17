@@ -33,22 +33,35 @@ export function ladoPrevia(): number {
   return Math.min(2048, Math.max(1024, Math.round(lado)));
 }
 
-/**
- * Comparte el archivo con la hoja de compartir del sistema, o lo descarga si el navegador no
- * puede compartir archivos. Devuelve cómo terminó.
- */
-export async function compartirODescargar(archivo: File): Promise<'compartido' | 'cancelado' | 'descargado'> {
-  if (navigator.canShare?.({ files: [archivo] })) {
-    try {
-      await navigator.share({ files: [archivo], title: archivo.name });
-      return 'compartido';
-    } catch (e) {
-      if (e instanceof DOMException && e.name === 'AbortError') return 'cancelado';
-      // Otro error (por ejemplo, sin gesto del usuario): se cae a la descarga.
-    }
+/** `true` si el navegador puede pasar este archivo a la hoja de compartir del sistema. */
+export function puedeCompartir(archivo: File): boolean {
+  try {
+    return !!navigator.canShare?.({ files: [archivo] });
+  } catch {
+    return false;
   }
-  descargar(archivo);
-  return 'descargado';
+}
+
+export type ResultadoCompartir =
+  | { estado: 'compartido' | 'cancelado' }
+  | { estado: 'no-soportado' }
+  | { estado: 'error'; detalle: string };
+
+/**
+ * Abre la hoja de compartir del sistema con el archivo. Nunca descarga a escondidas: si no se
+ * puede compartir, lo dice, y "Guardar" queda como acción aparte.
+ */
+export async function compartir(archivo: File): Promise<ResultadoCompartir> {
+  if (!puedeCompartir(archivo)) return { estado: 'no-soportado' };
+  try {
+    // Solo `files`: con `title`/`text`, algunas apps de Android comparten el texto y no la foto.
+    await navigator.share({ files: [archivo] });
+    return { estado: 'compartido' };
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') return { estado: 'cancelado' };
+    const detalle = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+    return { estado: 'error', detalle };
+  }
 }
 
 export function descargar(archivo: File) {

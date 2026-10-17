@@ -4,7 +4,8 @@
   import type { FormatoExport, InfoFoto } from './lib/protocolo';
   import {
     LIMITES_MP,
-    compartirODescargar,
+    compartir as compartirArchivo,
+    puedeCompartir,
     descargar,
     guardarLimiteMp,
     ladoPrevia,
@@ -19,11 +20,12 @@
     cargaInicial?: number;
     initWasm?: number;
     desdeCache?: boolean;
-    archivo?: { nombre: string; tipo: string; bytes: number };
+    archivo?: { nombre: string; tipo: string; bytes: number; origen: string };
     abrir?: { leer: number; motor: number; previa: number; total: number };
     exportar?: { ms: number; bytes: number; formato: string; calidad: number };
     /** Memoria del wasm (solo crece) después de abrir+previa y después de exportar. */
     memoria?: { abrir?: number; exportar?: number };
+    compartir?: string;
   }
 
   let estado = $state<Estado>('cargando');
@@ -40,6 +42,9 @@
   let conservarUbicacion = $state(false);
   let limiteMp = $state(leerLimiteMp());
   let exportado = $state<File | null>(null);
+  /** Resultado de Compartir/Guardar, visible dentro de la hoja de exportar. */
+  let avisoHoja = $state('');
+  const sePuedeCompartir = $derived(exportado ? puedeCompartir(exportado) : false);
 
   let lienzo: HTMLCanvasElement | undefined = $state();
   let entradaGaleria: HTMLInputElement | undefined = $state();
@@ -69,7 +74,7 @@
     estado = 'abriendo';
     const t0 = performance.now();
     try {
-      diag.archivo = { nombre: archivo.name, tipo: archivo.type || '(sin tipo)', bytes: archivo.size };
+      diag.archivo = { nombre: archivo.name, tipo: archivo.type || '(sin tipo)', bytes: archivo.size, origen: entrada.hasAttribute('capture') ? 'botón Cámara' : 'botón Galería' };
       const bytes = await archivo.arrayBuffer();
       const tLeido = performance.now();
       const lado = ladoPrevia();
@@ -107,6 +112,7 @@
     error = '';
     estado = 'exportando';
     exportado = null;
+    avisoHoja = '';
     try {
       const r = await pedir('exportar', formato, calidad, conservarUbicacion);
       const tipo = formato === 'jpg' ? 'image/jpeg' : 'image/png';
@@ -121,8 +127,17 @@
 
   async function compartir() {
     if (!exportado) return;
-    const r = await compartirODescargar(exportado);
-    if (r === 'descargado') aviso = 'Este navegador no puede compartir archivos: se descargó.';
+    avisoHoja = '';
+    const r = await compartirArchivo(exportado);
+    diag.compartir = r.estado === 'error' ? `error (${r.detalle})` : r.estado;
+    if (r.estado === 'no-soportado') avisoHoja = 'Este navegador no puede compartir archivos. Usa Guardar.';
+    else if (r.estado === 'error') avisoHoja = `No se pudo compartir: ${r.detalle}`;
+  }
+
+  function guardar() {
+    if (!exportado) return;
+    descargar(exportado);
+    avisoHoja = `Guardado en Descargas: ${exportado.name}`;
   }
 
   function cambiarLimite(v: number) {
@@ -136,10 +151,11 @@
 
   function textoDiagnostico(): string {
     const d = diag;
-    const l: string[] = [`Revela ${__REVELA_VERSION__}`, navigator.userAgent];
+    const instalada = matchMedia('(display-mode: standalone)').matches;
+    const l: string[] = [`Revela ${__REVELA_VERSION__}${instalada ? ' (instalada)' : ' (navegador)'}`, navigator.userAgent];
     if (d.cargaInicial != null)
       l.push(`Carga inicial: ${ms(d.cargaInicial)} (wasm ${ms(d.initWasm ?? 0)}, ${d.desdeCache ? 'desde caché' : 'desde red'})`);
-    if (d.archivo) l.push(`Archivo: ${d.archivo.nombre} · ${d.archivo.tipo} · ${mb(d.archivo.bytes)}`);
+    if (d.archivo) l.push(`Archivo (${d.archivo.origen}): ${d.archivo.nombre} · ${d.archivo.tipo} · ${mb(d.archivo.bytes)}`);
     if (info)
       l.push(
         `Foto: ${info.format} · original ${info.originalWidth}×${info.originalHeight} · trabajo ${info.width}×${info.height}`,
@@ -150,6 +166,7 @@
       );
     if (d.exportar)
       l.push(`Exportar ${d.exportar.formato.toUpperCase()} q${d.exportar.calidad}: ${ms(d.exportar.ms)} · ${mb(d.exportar.bytes)}`);
+    if (d.compartir) l.push(`Compartir: ${d.compartir}`);
     if (d.memoria?.abrir)
       l.push(
         `Memoria del motor (pico): al abrir ${mb(d.memoria.abrir)}` +
@@ -237,9 +254,12 @@
     {/if}
     {#if exportado}
       <p class="sub">Listo: {exportado.name} · {mb(exportado.size)}</p>
+      {#if avisoHoja}<p class="sub aviso-hoja" role="status">{avisoHoja}</p>{/if}
       <div class="acciones">
-        <button class="boton" onclick={() => exportado && descargar(exportado)}>Guardar</button>
-        <button class="boton principal" onclick={compartir}>Compartir</button>
+        <button class="boton" class:principal={!sePuedeCompartir} onclick={guardar}>Guardar</button>
+        {#if sePuedeCompartir}
+          <button class="boton principal" onclick={compartir}>Compartir</button>
+        {/if}
       </div>
     {:else}
       <div class="acciones">
@@ -429,6 +449,9 @@
     display: flex;
     gap: 8px;
     margin-top: 16px;
+  }
+  .aviso-hoja {
+    color: var(--texto);
   }
   .credito {
     font-size: 14px;
