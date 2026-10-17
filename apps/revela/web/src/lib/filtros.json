@@ -1,0 +1,796 @@
+{
+ "_fuente": "Presets de LightCraft (https://github.com/storytold/lightcraft, commit f34c7a8a89e0d1bade0a6889185f40acecc84a9f, crates/engine/src/presets.rs), MIT o Apache 2.0, Copyright ArtCraft Team y colaboradores de LightCraft. Traducidos a los ajustes de PhotoCraft por apps/revela/scripts/traducir_filtros.py; no editar a mano.",
+ "filtros": [
+  {
+   "id": "warm-glow",
+   "nombre": "Brillo cálido",
+   "original": "Warm Glow",
+   "grupo": "Color",
+   "tipo": "aproximado",
+   "nota": "sombras globales; temperatura convertida de Kelvin",
+   "ajustes": {
+    "contrast": 8.0,
+    "curveShadows": 9.600000000000001,
+    "curveDarks": 7.199999999999999,
+    "vibrance": 18.0,
+    "temperature": 20.6,
+    "tint": 5.3
+   }
+  },
+  {
+   "id": "cool-morning",
+   "nombre": "Mañana fresca",
+   "original": "Cool Morning",
+   "grupo": "Color",
+   "tipo": "aproximado",
+   "nota": "luces globales; temperatura convertida de Kelvin",
+   "ajustes": {
+    "curveHighlights": -16.0,
+    "curveLights": -12.0,
+    "vibrance": 10.0,
+    "temperature": -35.4,
+    "tint": -2.7,
+    "gradeShadows": {
+     "hue": 215.0,
+     "sat": 12.0,
+     "lum": 0.0
+    }
+   }
+  },
+  {
+   "id": "teal-orange",
+   "nombre": "Turquesa y naranja",
+   "original": "Teal & Orange",
+   "grupo": "Color",
+   "tipo": "completo",
+   "nota": "",
+   "ajustes": {
+    "contrast": 14.0,
+    "vibrance": 12.0,
+    "gradeShadows": {
+     "hue": 195.0,
+     "sat": 28.0,
+     "lum": 0.0
+    },
+    "gradeHighlights": {
+     "hue": 35.0,
+     "sat": 22.0,
+     "lum": 0.0
+    },
+    "gradeBalance": 10.0
+   }
+  },
+  {
+   "id": "vivid-pop",
+   "nombre": "Vívido",
+   "original": "Vivid Pop",
+   "grupo": "Color",
+   "tipo": "aproximado",
+   "nota": "blancos globales; negros globales; sin claridad (+12)",
+   "ajustes": {
+    "contrast": 18.0,
+    "curveHighlights": 3.5,
+    "curveShadows": -3.5,
+    "vibrance": 40.0,
+    "saturation": 8.0
+   }
+  },
+  {
+   "id": "soft-pastel",
+   "nombre": "Pastel suave",
+   "original": "Soft Pastel",
+   "grupo": "Color",
+   "tipo": "aproximado",
+   "nota": "sombras globales; luces globales; negros globales",
+   "ajustes": {
+    "contrast": -25.0,
+    "curveShadows": 60.0,
+    "curveDarks": 21.0,
+    "curveHighlights": -24.0,
+    "curveLights": -18.0,
+    "vibrance": 10.0,
+    "saturation": -18.0
+   }
+  },
+  {
+   "id": "bw-soft",
+   "nombre": "B/N suave",
+   "original": "Soft B&W",
+   "grupo": "Blanco y negro",
+   "tipo": "aproximado",
+   "nota": "sombras globales",
+   "ajustes": {
+    "contrast": -15.0,
+    "curveShadows": 35.0,
+    "curveDarks": 15.0,
+    "saturation": -100.0
+   }
+  },
+  {
+   "id": "bw-selenium",
+   "nombre": "Virado selenio",
+   "original": "Selenium Tone",
+   "grupo": "Blanco y negro",
+   "tipo": "completo",
+   "nota": "",
+   "ajustes": {
+    "contrast": 20.0,
+    "gradeShadows": {
+     "hue": 285.0,
+     "sat": 18.0,
+     "lum": 0.0
+    },
+    "gradeHighlights": {
+     "hue": 40.0,
+     "sat": 10.0,
+     "lum": 0.0
+    },
+    "saturation": -100.0
+   }
+  },
+  {
+   "id": "golden-hour",
+   "nombre": "Hora dorada",
+   "original": "Golden Hour",
+   "grupo": "Paisaje",
+   "tipo": "aproximado",
+   "nota": "sombras globales; luces globales; temperatura convertida de Kelvin; sin viñeta (-15)",
+   "ajustes": {
+    "curveShadows": 16.0,
+    "curveDarks": 12.0,
+    "curveHighlights": -28.0,
+    "curveLights": -21.0,
+    "temperature": 30.3,
+    "tint": 8.0,
+    "gradeHighlights": {
+     "hue": 38.0,
+     "sat": 25.0,
+     "lum": 5.0
+    }
+   }
+  },
+  {
+   "id": "blue-hour",
+   "nombre": "Hora azul",
+   "original": "Blue Hour Boost",
+   "grupo": "Paisaje",
+   "tipo": "aproximado",
+   "nota": "sombras globales; temperatura convertida de Kelvin",
+   "ajustes": {
+    "exposure": 0.2,
+    "curveShadows": 20.0,
+    "curveDarks": 15.0,
+    "temperature": -55.5,
+    "tint": 4.0,
+    "hslHue": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "hslSat": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     25.0,
+     15.0,
+     0.0
+    ],
+    "hslLum": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   }
+  },
+  {
+   "id": "bright-airy",
+   "nombre": "Luminoso",
+   "original": "Bright & Airy",
+   "grupo": "Retrato",
+   "tipo": "aproximado",
+   "nota": "sombras globales; luces globales; blancos globales",
+   "ajustes": {
+    "exposure": 0.45,
+    "contrast": -15.0,
+    "curveShadows": 32.0,
+    "curveDarks": 24.0,
+    "curveHighlights": -26.75,
+    "curveLights": -24.0,
+    "vibrance": 8.0,
+    "saturation": -8.0
+   }
+  },
+  {
+   "id": "cinematic",
+   "nombre": "Cine",
+   "original": "Cinematic",
+   "grupo": "Estilo",
+   "tipo": "aproximado",
+   "nota": "sin viñeta (-20)",
+   "ajustes": {
+    "contrast": 15.0,
+    "curveHighlights": -10.0,
+    "curveShadows": 20.0,
+    "gradeShadows": {
+     "hue": 190.0,
+     "sat": 25.0,
+     "lum": 0.0
+    },
+    "gradeHighlights": {
+     "hue": 30.0,
+     "sat": 18.0,
+     "lum": 0.0
+    }
+   }
+  },
+  {
+   "id": "golden-glow",
+   "nombre": "Resplandor dorado",
+   "original": "Golden Glow",
+   "grupo": "Retrato",
+   "tipo": "aproximado",
+   "nota": "sombras globales; sin claridad (-8)",
+   "ajustes": {
+    "curveShadows": 12.0,
+    "curveDarks": 9.0,
+    "gradeMidtones": {
+     "hue": 35.0,
+     "sat": 8.0,
+     "lum": 0.0
+    },
+    "gradeHighlights": {
+     "hue": 40.0,
+     "sat": 18.0,
+     "lum": 0.0
+    }
+   }
+  },
+  {
+   "id": "clean-studio",
+   "nombre": "Estudio limpio",
+   "original": "Clean Studio",
+   "grupo": "Retrato",
+   "tipo": "aproximado",
+   "nota": "blancos globales; negros globales; sin textura (-10)",
+   "ajustes": {
+    "contrast": 10.0,
+    "curveHighlights": 5.25,
+    "curveShadows": -2.8,
+    "vibrance": 5.0
+   }
+  },
+  {
+   "id": "deep-sky",
+   "nombre": "Cielo profundo",
+   "original": "Deep Sky",
+   "grupo": "Paisaje",
+   "tipo": "aproximado",
+   "nota": "luces globales; sin dehaze (+10)",
+   "ajustes": {
+    "curveHighlights": -24.0,
+    "curveLights": -18.0,
+    "hslHue": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "hslSat": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     15.0,
+     0.0,
+     0.0
+    ],
+    "hslLum": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     -10.0,
+     -25.0,
+     0.0,
+     0.0
+    ]
+   }
+  },
+  {
+   "id": "lush-greens",
+   "nombre": "Verdes intensos",
+   "original": "Lush Greens",
+   "grupo": "Paisaje",
+   "tipo": "aproximado",
+   "nota": "sin claridad (+8)",
+   "ajustes": {
+    "vibrance": 12.0,
+    "hslHue": [
+     0.0,
+     0.0,
+     10.0,
+     12.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "hslSat": [
+     0.0,
+     0.0,
+     10.0,
+     18.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "hslLum": [
+     0.0,
+     0.0,
+     0.0,
+     8.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   }
+  },
+  {
+   "id": "desert-warmth",
+   "nombre": "Desierto",
+   "original": "Desert Warmth",
+   "grupo": "Paisaje",
+   "tipo": "completo",
+   "nota": "",
+   "ajustes": {
+    "contrast": 10.0,
+    "hslHue": [
+     0.0,
+     0.0,
+     -8.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "hslSat": [
+     0.0,
+     15.0,
+     10.0,
+     0.0,
+     0.0,
+     -10.0,
+     0.0,
+     0.0
+    ],
+    "hslLum": [
+     0.0,
+     5.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "gradeHighlights": {
+     "hue": 38.0,
+     "sat": 12.0,
+     "lum": 0.0
+    }
+   }
+  },
+  {
+   "id": "neon-night",
+   "nombre": "Noche de neón",
+   "original": "Neon Night",
+   "grupo": "Urbano",
+   "tipo": "aproximado",
+   "nota": "negros globales",
+   "ajustes": {
+    "contrast": 18.0,
+    "curveShadows": -4.199999999999999,
+    "vibrance": 15.0,
+    "hslHue": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "hslSat": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     15.0,
+     12.0,
+     18.0,
+     20.0
+    ],
+    "hslLum": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "gradeShadows": {
+     "hue": 250.0,
+     "sat": 15.0,
+     "lum": 0.0
+    }
+   }
+  },
+  {
+   "id": "faded-urban",
+   "nombre": "Urbano desvaído",
+   "original": "Faded Urban",
+   "grupo": "Urbano",
+   "tipo": "aproximado",
+   "nota": "sin grano (+12)",
+   "ajustes": {
+    "contrast": -8.0,
+    "curveShadows": 30.0,
+    "saturation": -22.0
+   }
+  },
+  {
+   "id": "warm-table",
+   "nombre": "Mesa cálida",
+   "original": "Warm Table",
+   "grupo": "Comida",
+   "tipo": "completo",
+   "nota": "",
+   "ajustes": {
+    "contrast": 8.0,
+    "hslHue": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "hslSat": [
+     8.0,
+     10.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "hslLum": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "gradeMidtones": {
+     "hue": 32.0,
+     "sat": 10.0,
+     "lum": 0.0
+    }
+   }
+  },
+  {
+   "id": "autumn-gold",
+   "nombre": "Otoño dorado",
+   "original": "Autumn Gold",
+   "grupo": "Estaciones",
+   "tipo": "completo",
+   "nota": "",
+   "ajustes": {
+    "hslHue": [
+     0.0,
+     0.0,
+     -15.0,
+     -30.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "hslSat": [
+     0.0,
+     18.0,
+     15.0,
+     -10.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "hslLum": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "gradeHighlights": {
+     "hue": 40.0,
+     "sat": 10.0,
+     "lum": 0.0
+    }
+   }
+  },
+  {
+   "id": "winter-blue",
+   "nombre": "Invierno azul",
+   "original": "Winter Blue",
+   "grupo": "Estaciones",
+   "tipo": "aproximado",
+   "nota": "blancos globales",
+   "ajustes": {
+    "curveHighlights": 4.199999999999999,
+    "saturation": -12.0,
+    "gradeShadows": {
+     "hue": 215.0,
+     "sat": 18.0,
+     "lum": 0.0
+    },
+    "gradeHighlights": {
+     "hue": 205.0,
+     "sat": 8.0,
+     "lum": 0.0
+    }
+   }
+  },
+  {
+   "id": "spring-fresh",
+   "nombre": "Primavera",
+   "original": "Spring Fresh",
+   "grupo": "Estaciones",
+   "tipo": "aproximado",
+   "nota": "sombras globales",
+   "ajustes": {
+    "curveShadows": 12.0,
+    "curveDarks": 9.0,
+    "vibrance": 15.0,
+    "hslHue": [
+     0.0,
+     0.0,
+     0.0,
+     10.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "hslSat": [
+     0.0,
+     0.0,
+     0.0,
+     12.0,
+     0.0,
+     0.0,
+     0.0,
+     10.0
+    ],
+    "hslLum": [
+     0.0,
+     0.0,
+     0.0,
+     10.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   }
+  },
+  {
+   "id": "summer-haze",
+   "nombre": "Bruma de verano",
+   "original": "Summer Haze",
+   "grupo": "Estaciones",
+   "tipo": "aproximado",
+   "nota": "sin dehaze (-12)",
+   "ajustes": {
+    "contrast": -10.0,
+    "curveShadows": 18.0,
+    "gradeHighlights": {
+     "hue": 45.0,
+     "sat": 14.0,
+     "lum": 0.0
+    }
+   }
+  },
+  {
+   "id": "cross-process",
+   "nombre": "Proceso cruzado",
+   "original": "Cross Process",
+   "grupo": "Retro",
+   "tipo": "completo",
+   "nota": "",
+   "ajustes": {
+    "contrast": 22.0,
+    "saturation": 10.0,
+    "gradeShadows": {
+     "hue": 230.0,
+     "sat": 25.0,
+     "lum": 0.0
+    },
+    "gradeHighlights": {
+     "hue": 60.0,
+     "sat": 25.0,
+     "lum": 0.0
+    }
+   }
+  },
+  {
+   "id": "bw-sepia",
+   "nombre": "Sepia",
+   "original": "Sepia Tone",
+   "grupo": "Blanco y negro",
+   "tipo": "completo",
+   "nota": "",
+   "ajustes": {
+    "curveShadows": 10.0,
+    "gradeShadows": {
+     "hue": 32.0,
+     "sat": 22.0,
+     "lum": 0.0
+    },
+    "gradeHighlights": {
+     "hue": 42.0,
+     "sat": 18.0,
+     "lum": 0.0
+    },
+    "saturation": -100.0
+   }
+  }
+ ],
+ "excluidos": [
+  {
+   "id": "faded-matte",
+   "nombre": "Mate desvaído",
+   "original": "Faded Matte",
+   "grupo": "Película",
+   "motivo": "depende de grano +18"
+  },
+  {
+   "id": "warm-film",
+   "nombre": "Película cálida",
+   "original": "Warm Film",
+   "grupo": "Película",
+   "motivo": "depende de grano +22"
+  },
+  {
+   "id": "muted-film",
+   "nombre": "Película apagada",
+   "original": "Muted Film",
+   "grupo": "Película",
+   "motivo": "depende de grano +15"
+  },
+  {
+   "id": "bw-high-contrast",
+   "nombre": "B/N alto contraste",
+   "original": "High Contrast B&W",
+   "grupo": "Blanco y negro",
+   "motivo": "depende de claridad +20"
+  },
+  {
+   "id": "crisp-landscape",
+   "nombre": "Paisaje nítido",
+   "original": "Crisp Landscape",
+   "grupo": "Paisaje",
+   "motivo": "depende de claridad +22, textura +15"
+  },
+  {
+   "id": "soft-skin",
+   "nombre": "Piel suave",
+   "original": "Soft Skin",
+   "grupo": "Retrato",
+   "motivo": "depende de textura -25"
+  },
+  {
+   "id": "moody",
+   "nombre": "Sombrío",
+   "original": "Moody",
+   "grupo": "Estilo",
+   "motivo": "depende de viñeta -30"
+  },
+  {
+   "id": "moody-portrait",
+   "nombre": "Retrato sombrío",
+   "original": "Moody Portrait",
+   "grupo": "Retrato",
+   "motivo": "depende de viñeta -25"
+  },
+  {
+   "id": "crisp-vista",
+   "nombre": "Vista nítida",
+   "original": "Crisp Vista",
+   "grupo": "Paisaje",
+   "motivo": "depende de dehaze +15, claridad +18"
+  },
+  {
+   "id": "misty-morning",
+   "nombre": "Mañana con niebla",
+   "original": "Misty Morning",
+   "grupo": "Paisaje",
+   "motivo": "depende de dehaze -18"
+  },
+  {
+   "id": "gritty-street",
+   "nombre": "Calle granulada",
+   "original": "Gritty Street",
+   "grupo": "Urbano",
+   "motivo": "depende de claridad +35, textura +20"
+  },
+  {
+   "id": "concrete-cool",
+   "nombre": "Hormigón frío",
+   "original": "Concrete Cool",
+   "grupo": "Urbano",
+   "motivo": "depende de claridad +15"
+  },
+  {
+   "id": "fresh-bright",
+   "nombre": "Fresco y luminoso",
+   "original": "Fresh & Bright",
+   "grupo": "Comida",
+   "motivo": "depende de textura +15"
+  },
+  {
+   "id": "dark-moody-food",
+   "nombre": "Oscuro",
+   "original": "Dark & Moody",
+   "grupo": "Comida",
+   "motivo": "depende de textura +18"
+  },
+  {
+   "id": "instant-70s",
+   "nombre": "Instantánea de los 70",
+   "original": "Instant ’70s",
+   "grupo": "Retro",
+   "motivo": "depende de grano +20"
+  },
+  {
+   "id": "bleach-bypass",
+   "nombre": "Blanqueo parcial",
+   "original": "Bleach Bypass",
+   "grupo": "Retro",
+   "motivo": "depende de claridad +15"
+  }
+ ]
+}

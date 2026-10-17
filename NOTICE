@@ -12,6 +12,11 @@ Third-party material
 This product bundles third-party material under its own licenses, listed below. The per-file
 list (author, source, license) is in ATTRIBUTION.md.
 
+Revela's filters (apps/revela/web/src/lib/filtros.json) are LightCraft's built-in presets
+(https://github.com/storytold/lightcraft), Copyright (c) 2026 ArtCraft Team and the LightCraft
+contributors, MIT License or Apache License 2.0, translated to PhotoCraft's settings by Revela.
+See apps/revela/web/src/lib/LICENSE-lightcraft-MIT.txt.
+
 Inter font (assets/fonts/Inter-*.ttf) — SIL Open Font License 1.1. See assets/fonts/OFL-Inter.txt.
 JetBrains Mono font (assets/fonts/JetBrainsMono-Regular.ttf) — SIL Open Font License 1.1. See assets/fonts/OFL-JetBrainsMono.txt.
 Lucide icons (assets/icons/*.svg, except slice-knife.svg) — ISC; icons derived from Feather also MIT. See assets/icons/LICENSE-lucide.txt.

@@ -1,0 +1,7 @@
+{
+  "_nota": "Cómo mueven la curva paramétrica global (Camera Raw de PhotoCraft) los sliders Sombras/Luces de Revela y los Blancos/Negros de los presets de LightCraft. Lo leen la interfaz (receta.ts) y scripts/traducir_filtros.py.",
+  "sombras": { "curveShadows": 0.8, "curveDarks": 0.6 },
+  "luces": { "curveHighlights": 0.8, "curveLights": 0.6 },
+  "blancos": { "curveHighlights": 0.35 },
+  "negros": { "curveShadows": 0.35 }
+}
