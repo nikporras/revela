@@ -63,6 +63,15 @@ pub struct Preview {
     pub pixels: Vec<u8>,
 }
 
+/// Unas filas de la zona nítida del zoom ([`Editor::detalle`]): la ventana entera mide
+/// `ancho`×`alto`; `pixels` son RGBA8 de las filas desde `fila0`.
+pub struct Franja {
+    pub ancho: u32,
+    pub alto: u32,
+    pub fila0: u32,
+    pub pixels: Vec<u8>,
+}
+
 /// Formatos de exportación.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExportFormat {
@@ -206,19 +215,28 @@ impl Editor {
     /// `ventana` es `[x0, y0, x1, y1]` en fracciones de la salida y se dibuja a `ancho`×`alto`
     /// (como mucho, la resolución de la foto). Sin ajustes: los pone la GPU, así que mover un
     /// slider no obliga a pedirla otra vez.
-    pub fn detalle(&self, geom: &Geometria, ventana: [f64; 4], ancho: u32, alto: u32) -> Result<Preview> {
+    ///
+    /// Devuelve solo las filas `filas` de esa ventana: la interfaz la pide **por franjas** para
+    /// que, entre una y otra, el worker atienda antes a los sliders (y pueda dejarla a medias).
+    pub fn detalle(&self, geom: &Geometria, ventana: [f64; 4], ancho: u32, alto: u32, filas: std::ops::Range<u32>) -> Result<Franja> {
         let doc = self.doc()?;
         let [x0, y0, x1, y1] = ventana.map(|v| if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 });
         if x1 <= x0 || y1 <= y0 {
             return Err(Error("ventana vacía".into()));
         }
         let completo = geom.plano(doc.size.width, doc.size.height);
-        // Nunca más píxeles que los de la foto en esa ventana (ni más de 4096 de lado).
+        // Nunca más píxeles que los de la foto en esa ventana (ni más de 4096 de lado). Es
+        // determinista: todas las franjas de una ventana calculan el mismo tamaño.
         let tope = |n: u32, f: f64, lado: u32| n.min((f * f64::from(lado)).ceil() as u32).clamp(1, 4096);
         let plano = completo.ventana([x0, y0, x1, y1], tope(ancho, x1 - x0, completo.ancho), tope(alto, y1 - y0, completo.alto));
-        let (w, h) = (plano.ancho as usize, plano.alto as usize);
+        let (v0, v1) = (filas.start.min(plano.alto), filas.end.min(plano.alto));
+        if v0 >= v1 {
+            return Err(Error("franja vacía".into()));
+        }
+        let franja = plano.filas(v0, v1);
+        let (w, h) = (franja.ancho as usize, franja.alto as usize);
         let mut pixels = vec![0u8; w * h * 4];
-        por_bloques(&doc, &plano, |px, u0, v0, tw, _| {
+        por_bloques(&doc, &franja, |px, u0, v0, tw, _| {
             for (k, q) in px.iter().enumerate() {
                 let (x, y) = (u0 as usize + k % tw, v0 as usize + k / tw);
                 let i = (y * w + x) * 4;
@@ -228,7 +246,7 @@ impl Editor {
             }
             Ok(())
         })?;
-        Ok(Preview { width: plano.ancho, height: plano.alto, pixels })
+        Ok(Franja { ancho: plano.ancho, alto: plano.alto, fila0: v0, pixels })
     }
 
     /// Codifica la foto a resolución de trabajo completa con los ajustes. El motor compone la

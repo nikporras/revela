@@ -129,6 +129,14 @@ impl Plano {
         Plano { ancho, alto, m, origen: self.origen }
     }
 
+    /// Solo las filas `v0..v1` de la salida (para dibujarla por franjas).
+    pub fn filas(&self, v0: u32, v1: u32) -> Plano {
+        let m = self.m.map(f64::from);
+        let v = f64::from(v0);
+        let m = [m[0], m[1], m[1] * v + m[2], m[3], m[4], m[4] * v + m[5]].map(|x| x as f32);
+        Plano { alto: v1.saturating_sub(v0).max(1), m, ..*self }
+    }
+
     /// Punto de la foto de origen para el centro del píxel `(u, v)` de la salida.
     pub fn origen_de(&self, u: u32, v: u32) -> (f32, f32) {
         let (pu, pv) = (u as f32 + 0.5, v as f32 + 0.5);

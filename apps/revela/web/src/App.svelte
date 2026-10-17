@@ -162,10 +162,15 @@
     if (!info) return;
     tCambio = performance.now();
     const json = ajustesJson();
-    // Con otro encuadre, la zona nítida del zoom ya no vale.
+    // El slider manda: si la zona nítida se estaba calculando (o iba a pedirse), se abandona y
+    // se vuelve a pedir al soltar (`confirmar`). Con otro encuadre, la que hay ya no vale.
+    if (calculandoDetalle || tDetalle !== undefined) {
+      cancelarDetalle();
+      detallePendiente = true;
+    }
     if (cajaDetalle && geoDetalle !== geometriaPrevia()) {
       ocultarDetalle();
-      programarDetalle();
+      detallePendiente = true;
     }
     if (usarGpu) actualizarGpu(json, geometriaPrevia());
     else actualizarCpu(json, geometriaPrevia());
@@ -287,6 +292,7 @@
 
   /** Un paso de deshacer (al soltar un slider, elegir un filtro…). */
   function confirmar() {
+    reanudarDetalle();
     const actual = $state.snapshot(receta) as Receta;
     if (JSON.stringify(actual) === JSON.stringify(historial[posicion])) return;
     historial = [...historial.slice(0, posicion + 1), actual].slice(-100);
@@ -300,6 +306,7 @@
     receta = structuredClone($state.snapshot(historial[p]) as Receta);
     exportado = null;
     aplicar();
+    reanudarDetalle();
   }
 
   function cambiarSlider(id: IdSlider, v: number) {
@@ -520,16 +527,40 @@
   let cajaDetalle = $state<{ x: number; y: number; w: number; h: number } | null>(null);
   /** Encuadre con el que se calculó (si cambia, hay que pedirla otra vez). */
   let geoDetalle = '';
-  let tDetalle: ReturnType<typeof setTimeout> | undefined;
+  let tDetalle: ReturnType<typeof setTimeout> | undefined = undefined;
+
+  /** Cada cálculo de la zona nítida tiene su turno; cambiarlo abandona el que esté en marcha. */
+  let turnoDetalle = 0;
+  let calculandoDetalle = false;
+  /** Se abandonó por un slider: se vuelve a pedir al soltarlo. */
+  let detallePendiente = false;
+  /** Filas por petición: entre una franja y otra, el worker atiende antes a los sliders. */
+  const FILAS_DETALLE = 128;
+
+  function cancelarDetalle() {
+    clearTimeout(tDetalle);
+    tDetalle = undefined;
+    turnoDetalle++;
+    calculandoDetalle = false;
+  }
 
   function ocultarDetalle() {
-    clearTimeout(tDetalle);
+    cancelarDetalle();
     cajaDetalle = null;
   }
 
   function programarDetalle() {
     clearTimeout(tDetalle);
-    tDetalle = setTimeout(pedirDetalle, 150);
+    tDetalle = setTimeout(() => {
+      tDetalle = undefined;
+      pedirDetalle();
+    }, 150);
+  }
+
+  function reanudarDetalle() {
+    if (!detallePendiente) return;
+    detallePendiente = false;
+    if (!esAjustada(vista)) programarDetalle();
   }
 
   /** Lo que determina la zona nítida: si cambia mientras se calcula, se descarta. */
@@ -538,23 +569,35 @@
     return `${geometriaPrevia()}|${vista.z}|${vista.x}|${vista.y}|${l?.offsetWidth}x${l?.offsetHeight}|${l?.width}`;
   }
 
-  const traerDetalle = ultimaGana(
-    async (geo: string, ventana: [number, number, number, number], ancho: number, alto: number, clave: string, caja: { x: number; y: number; w: number; h: number }) => ({
-      p: (await pedir('detalle', geo, ventana, ancho, alto)).valor,
-      geo,
-      clave,
-      caja,
-    }),
-    ({ p, geo, clave, caja }) => {
-      if (!detalle || clave !== claveVista() || gesto) return;
-      detalle.cargar(p.width, p.height, p.pixels);
-      detalle.dibujar(comparando ? null : ultimosParams, null);
-      geoDetalle = geo;
-      cajaDetalle = caja;
-    },
-    // No es grave: se queda la previa ampliada.
-    (e) => console.warn('zona nítida:', e.message),
-  );
+  /** Pide la zona nítida franja a franja; si mientras tanto cambia el turno, la abandona. */
+  async function traerDetalle(geo: string, ventana: [number, number, number, number], ancho: number, alto: number, clave: string, caja: { x: number; y: number; w: number; h: number }) {
+    const turno = ++turnoDetalle;
+    calculandoDetalle = true;
+    let px: Uint8Array | null = null;
+    let tam: [number, number] = [0, 0];
+    try {
+      for (let fila = 0; !px || fila < tam[1]; fila += FILAS_DETALLE) {
+        const f = (await pedir('detalle', geo, ventana, ancho, alto, fila, fila + FILAS_DETALLE)).valor;
+        if (turno !== turnoDetalle) return;
+        if (!px) {
+          tam = [f.ancho, f.alto];
+          px = new Uint8Array(f.ancho * f.alto * 4);
+        }
+        px.set(f.pixels, f.fila0 * f.ancho * 4);
+      }
+    } catch (e) {
+      // No es grave: se queda la previa ampliada.
+      if (turno === turnoDetalle) console.warn('zona nítida:', (e as Error).message);
+      return;
+    } finally {
+      if (turno === turnoDetalle) calculandoDetalle = false;
+    }
+    if (!detalle || clave !== claveVista() || gesto) return;
+    detalle.cargar(tam[0], tam[1], px);
+    detalle.dibujar(comparando ? null : ultimosParams, null);
+    geoDetalle = geo;
+    cajaDetalle = caja;
+  }
 
   function pedirDetalle() {
     const l = lienzoVisible();

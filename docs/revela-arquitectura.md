@@ -121,6 +121,7 @@ locales; exportar 12 MP con el comando entero gasta 770 MB. Por eso:
 - **Zona nítida:** al soltar, si la previa se queda corta, el motor dibuja la zona visible a resolución completa:
   - Usa `Editor::detalle`, que es la misma geometría y el mismo bilineal que la exportación, por bloques, sin ajustes y como mucho a la resolución de la pantalla.
   - La GPU le pone los ajustes encima. Por eso mover un slider con zoom no vuelve a pedirla.
+  - Se pide **por franjas de 128 filas**, una petición cada vez. Si un slider se mueve mientras tanto, su petición pasa delante de la siguiente franja (espera como mucho una), la zona a medias se descarta y se vuelve a pedir al soltar el slider.
   - Una prueba comprueba que coincide con la exportación (≤ 1/255).
 - **Sin WebGL2** hay zoom, pero sin zona nítida.
 

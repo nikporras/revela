@@ -60,12 +60,21 @@ impl Revela {
         Ok(vec![w, h])
     }
 
-    /// Una ventana `[x0, y0, x1, y1]` (fracciones) del encuadre a resolución completa, dibujada a
-    /// como mucho `ancho`×`alto`, sin ajustes: la previa nítida con zoom.
+    /// Las filas `fila0..fila1` de una ventana `[x0, y0, x1, y1]` (fracciones) del encuadre a
+    /// resolución completa, dibujada a como mucho `ancho`×`alto`, sin ajustes: la previa nítida
+    /// con zoom. Devuelve `{ ancho, alto, fila0, pixels: Uint8ClampedArray }`.
     #[allow(clippy::too_many_arguments)]
-    pub fn detalle(&self, geometria_json: &str, x0: f64, y0: f64, x1: f64, y1: f64, ancho: u32, alto: u32) -> Result<JsValue, JsError> {
+    pub fn detalle(&self, geometria_json: &str, x0: f64, y0: f64, x1: f64, y1: f64, ancho: u32, alto: u32, fila0: u32, fila1: u32) -> Result<JsValue, JsError> {
         let g = Geometria::de_json(geometria_json).map_err(js_err)?;
-        preview_js(self.editor.detalle(&g, [x0, y0, x1, y1], ancho, alto).map_err(js_err)?)
+        let f = self.editor.detalle(&g, [x0, y0, x1, y1], ancho, alto, fila0..fila1).map_err(js_err)?;
+        let o = js_sys::Object::new();
+        let set = |k: &str, v: JsValue| js_sys::Reflect::set(&o, &JsValue::from_str(k), &v).map(|_| ());
+        set("ancho", f.ancho.into())
+            .and(set("alto", f.alto.into()))
+            .and(set("fila0", f.fila0.into()))
+            .and(set("pixels", js_sys::Uint8ClampedArray::from(f.pixels.as_slice()).into()))
+            .map_err(|_| JsError::new("no se pudo preparar la respuesta"))?;
+        Ok(o.into())
     }
 
     /// Exporta a resolución completa con ajustes y geometría: `format` "jpg" o "png", `quality`
