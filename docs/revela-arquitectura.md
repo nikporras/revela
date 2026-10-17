@@ -1,6 +1,6 @@
 # Revela: arquitectura
 
-> Última actualización: 2026-10-17 (Fase 3, esqueleto).
+> Última actualización: 2026-10-17 (Fase 4: ajustes en vivo, curvas y filtros).
 
 Revela es una PWA móvil que usa el motor de PhotoCraft compilado a WebAssembly, con una
 interfaz nueva en Svelte. Todo se procesa en el dispositivo.
@@ -11,7 +11,8 @@ interfaz nueva en Svelte. Todo se procesa en el dispositivo.
 apps/revela/
   Cargo.toml, src/      revela-core: puente Rust → wasm (wasm-bindgen). Sin egui ni GPU.
     lib.rs              Editor: abrir, vista previa, exportar (Rust normal, con pruebas)
-    metadata.rs         limpieza de EXIF al exportar (GPS, miniatura)
+    ajustes.rs          ajustes por píxel (Camera Raw de PhotoCraft) y parámetros del shader
+    metadata.rs         limpieza de EXIF al exportar (GPS, miniatura) y fecha de captura
     wasm.rs             la API que ve JavaScript
   tests/                pruebas de punta a punta y medición de memoria
   build-wasm.sh         compila el wasm a web/src/wasm/ (no se versiona)
@@ -19,7 +20,13 @@ apps/revela/
   web/                  interfaz: Svelte 5 + TypeScript + Vite + vite-plugin-pwa
     src/worker.ts       Web Worker donde vive el motor
     src/lib/motor.ts    cliente del worker (pedir(op, ...args) → promesa)
+    src/lib/gpu.ts      previa en la GPU: shader WebGL2 (highp) de los ajustes
+    src/lib/receta.ts   la receta (sliders, curvas, filtro) → ajustes de Camera Raw
+    src/lib/filtros.*   filtros (presets de LightCraft traducidos)
+    src/lib/autoprueba.ts  prueba GPU = motor (CI y ⓘ › Probar GPU)
+    src/componentes/    Sliders, Curvas, Filtros
     src/App.svelte      la pantalla
+    pruebas/igualdad.*  prueba de igualdad en Chromium headless (bloquea el despliegue)
 .github/workflows/revela-pages.yml   pruebas, build y despliegue en GitHub Pages
 ```
 
@@ -42,6 +49,55 @@ ningún crate del motor (ver `docs/revela-cambios-motor.md`).
 
 Si el wasm falla (pánico o falta de memoria), el worker responde `fatal` y la interfaz crea
 otro worker en el siguiente pedido, así que la página no se queda colgada.
+
+## Ajustes en vivo: previa en la GPU, exportación en el motor
+
+Medido antes de construir los sliders (wasm de un hilo, copia de previa de 1,5 MP): el filtro
+Camera Raw del motor tarda 491 ms por cambio con ajustes simples y 4,7 s con sombras/luces
+locales; exportar 12 MP con el comando entero gasta 770 MB. Por eso:
+
+- **Ajustes = etapas por píxel del Camera Raw de PhotoCraft**: temperatura/tinte y exposición,
+  contraste, vibrancia, saturación, curva paramétrica (Sombras/Luces globales, coeficientes en
+  `web/src/lib/tono.json`), curvas de puntos Luz/R/G/B, HSL y gradación de color.
+  `ajustes::sanear` descarta cualquier otro control, así que la exportación no puede usar algo
+  que la previa no muestra.
+- **Previa**: shader WebGL2 en `highp` (`gpu.ts`) que replica paso a paso `camera_raw::develop`.
+  Todas las constantes y las curvas las calcula el motor (`gpuParams`): la curva paramétrica sale
+  de pasar una rampa de grises por `develop`, sin copiar código. Un cambio de slider tarda
+  ~1 ms (mediana; 14 ms máx.) incluido el viaje al worker. Sin WebGL2, la previa la calcula el
+  motor a 900 px.
+- **Exportación**: el motor compone la foto por franjas de 256 filas (`compose::render_bands`) y
+  revela cada una con `develop`. Las etapas por píxel dan 0/255 de diferencia enteras o por
+  franjas (medido). Escribe RGB directo (RGBA solo para un PNG con transparencia): exportar 12 MP
+  no sube la memoria sobre lo que ya usa abrir (189 MB) y tarda ~4,3 s.
+- **Igualdad comprobada**: `pruebas/igualdad.mjs` compara shader y motor en Chromium headless
+  (SwiftShader) sobre un cielo suave, una rampa de grises, todos los colores y ruido, con 53
+  recetas (extremos de cada etapa, combinaciones al azar y los 25 filtros): máx. 1/255 y los
+  degradados conservan sus niveles (sin bandas). Corre en el CI y **bloquea el despliegue** si
+  falla (comprobado rompiendo el shader a propósito). La misma prueba se lanza en el teléfono
+  desde ⓘ › Diagnóstico › Probar GPU, con su GPU real.
+- **Receta**: sliders + curvas + filtro con intensidad (`receta.ts`). El filtro se escala por su
+  intensidad y los sliders se suman encima; las curvas del usuario mandan. Deshacer/rehacer
+  guarda la receta entera (100 pasos).
+
+## Filtros
+
+Los presets de LightCraft (commit `f34c7a8a`) traducidos por `scripts/traducir_filtros.py`:
+25 de 41 (7 completos, 18 aproximados). Los locales de tono se aproximan con la curva global;
+el balance de blancos en Kelvin se convierte al slider de temperatura igualando el cambio
+rojo/azul de una adaptación Bradford; B/N = saturación −100. Quedan fuera los que dependen de
+claridad, textura, dehaze o grano ≥ 15, o viñeta ≥ 25 (la lista sale del script). Atribución en
+`filtros.json`, `ATTRIBUTION.md`, `NOTICE` y la pantalla ⓘ.
+
+## Para más adelante: ajustes locales sin costuras
+
+Sombras/luces, blancos/negros y claridad **locales** (como Lightroom) mirarían a los vecinos, y
+por franjas dejarían costuras (medido: hasta 103/255). Idea: calcular una **guía de luminancia de
+baja resolución de la foto completa** (unos 512 px, con el filtro guiado / Laplaciano local del
+motor) una sola vez, y que la previa y **todas** las franjas de la exportación lean esa misma
+guía, escalada a su posición. Así cada píxel depende solo de sí mismo y de la guía compartida:
+sin costuras, y la GPU puede usar la guía como textura. Mismo método de verificación (≤ 1/255 en
+el CI). Blancos/negros adaptativos ya usan estadísticas de una copia de ≤ 256 px, así que encajan.
 
 ## Privacidad de los metadatos
 
