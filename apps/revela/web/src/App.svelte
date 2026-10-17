@@ -22,6 +22,7 @@
     type Rect,
   } from './lib/recorte';
   import { Motor, motor, pedir, ultimaGana } from './lib/motor';
+  import { AJUSTADA, acercar, esAjustada, limitar, mezclar, type Medidas, type Vista } from './lib/zoom';
   import { carpetaRecordada, guardarEnCarpeta, nombreBase as elegirNombreBase, soportaCarpeta } from './lib/guardar';
   import { Revelador, hayWebGL2, type ParametrosGpu, type PlanoGpu } from './lib/gpu';
   import { FILTROS, recetasDeFiltros, type Filtro } from './lib/filtros';
@@ -134,7 +135,10 @@
       ultimosParams = params;
       ultimoPlano = plano;
       luts = params.luts;
-      if (!comparando) revelador?.dibujar(params, plano);
+      if (!comparando) {
+        revelador?.dibujar(params, plano);
+        if (cajaDetalle) detalle?.dibujar(params, null);
+      }
       medirVivo();
       medirCaja();
     },
@@ -158,6 +162,11 @@
     if (!info) return;
     tCambio = performance.now();
     const json = ajustesJson();
+    // Con otro encuadre, la zona nítida del zoom ya no vale.
+    if (cajaDetalle && geoDetalle !== geometriaPrevia()) {
+      ocultarDetalle();
+      programarDetalle();
+    }
     if (usarGpu) actualizarGpu(json, geometriaPrevia());
     else actualizarCpu(json, geometriaPrevia());
   }
@@ -169,16 +178,32 @@
   /** Dónde está dibujada la foto dentro de su sección (para poner el marco de recorte encima). */
   let caja = $state({ x: 0, y: 0, w: 0, h: 0 });
 
+  /** Tamaño en píxeles de lo dibujado: si cambia (otro recorte, un giro…), el zoom vuelve a ajustar. */
+  let tamLienzo = '';
+
   function medirCaja() {
     const l = usarGpu ? lienzoGpu : lienzo2d;
     if (!l || !seccionFoto) return;
+    const tam = `${l.width}x${l.height}`;
+    if (tam !== tamLienzo) {
+      tamLienzo = tam;
+      if (!esAjustada(vista)) {
+        vista = AJUSTADA;
+        ocultarDetalle();
+      }
+    }
     const a = l.getBoundingClientRect();
     const b = seccionFoto.getBoundingClientRect();
     caja = { x: a.left - b.left, y: a.top - b.top, w: a.width, h: a.height };
   }
 
   onMount(() => {
-    const ro = new ResizeObserver(() => medirCaja());
+    const ro = new ResizeObserver(() => {
+      const m = medidas();
+      if (m) vista = limitar(vista, m);
+      medirCaja();
+      if (!esAjustada(vista)) programarDetalle();
+    });
     if (seccionFoto) ro.observe(seccionFoto);
     return () => ro.disconnect();
   });
@@ -304,18 +329,257 @@
     // Mientras se recorta, el dedo mueve el recorte: no se compara.
     if (!info || pestana === 'recortar') return;
     clearTimeout(temporizador);
+    // Con zoom el dedo también arrastra: se espera un poco más para no confundirlo.
     temporizador = setTimeout(() => {
       comparando = true;
-      if (usarGpu) revelador?.dibujar(null, ultimoPlano);
-      else if (base) pintar2d(base);
-    }, 150);
+      if (usarGpu) {
+        revelador?.dibujar(null, ultimoPlano);
+        if (cajaDetalle) detalle?.dibujar(null, null);
+      } else if (base) pintar2d(base);
+    }, esAjustada(vista) ? 150 : 300);
   }
   function soltar() {
     clearTimeout(temporizador);
     if (!comparando) return;
     comparando = false;
-    if (usarGpu) revelador?.dibujar(ultimosParams, ultimoPlano);
-    else aplicar();
+    if (usarGpu) {
+      revelador?.dibujar(ultimosParams, ultimoPlano);
+      if (cajaDetalle) detalle?.dibujar(ultimosParams, null);
+    } else aplicar();
+  }
+
+  // --- Zoom: pellizco, arrastre con un dedo y doble toque -----------------------------------
+  //
+  // La foto ajustada se agranda con CSS (rápido, pero se ve la previa reducida). Al soltar, si la
+  // previa se queda corta, el motor dibuja la zona visible a resolución completa (sin ajustes) y
+  // la GPU le pone los ajustes encima: la zona nítida.
+
+  let vista = $state<Vista>(AJUSTADA);
+  const transformacion = $derived(esAjustada(vista) ? undefined : `translate(${vista.x}px, ${vista.y}px) scale(${vista.z})`);
+  let marcoRecorte: { cancelar: () => void } | undefined = $state();
+  const punteros = new Map<number, { x: number; y: number }>();
+  type Gesto =
+    | { tipo: 'pellizco'; d0: number; m0: { x: number; y: number }; v0: Vista }
+    | { tipo: 'arrastre'; p0: { x: number; y: number }; v0: Vista };
+  let gesto: Gesto | null = null;
+  /** El dedo actual (para el doble toque): dónde y cuándo bajó, y si se ha movido. */
+  let toque: { t: number; x: number; y: number; movido: boolean; asa: boolean } | null = null;
+  let ultimoToque: { t: number; x: number; y: number } | null = null;
+
+  const lienzoVisible = () => (usarGpu ? lienzoGpu : lienzo2d);
+
+  /** Medidas para el zoom, y el zoom al que un píxel de la foto es un píxel de la pantalla. */
+  function medidas(): (Medidas & { z100: number }) | null {
+    const l = lienzoVisible();
+    if (!l || !seccionFoto || !info || !l.offsetWidth) return null;
+    const tex = usarGpu ? (revelador?.ancho ?? 0) : (base?.width ?? 0);
+    if (!tex) return null;
+    // La previa es la foto reducida: tantos píxeles de la foto completa por píxel de la previa.
+    const completo = (l.width * info.width) / tex;
+    const z100 = completo / (l.offsetWidth * (devicePixelRatio || 1));
+    return { fotoW: l.offsetWidth, fotoH: l.offsetHeight, areaW: seccionFoto.clientWidth, areaH: seccionFoto.clientHeight, zMax: Math.max(2 * z100, 2), z100 };
+  }
+
+  function capturar(id: number) {
+    try {
+      seccionFoto?.setPointerCapture(id);
+    } catch {
+      // Un puntero que ya no está activo: no pasa nada.
+    }
+  }
+
+  function pos(e: PointerEvent) {
+    const r = seccionFoto!.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+
+  function empezarPellizco() {
+    const [a, b] = [...punteros.values()];
+    gesto = { tipo: 'pellizco', d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, m0: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, v0: vista };
+    ocultarDetalle();
+  }
+
+  function abajoZoom(e: PointerEvent) {
+    if (!info || !seccionFoto) return;
+    cancelAnimationFrame(animacion);
+    const p = pos(e);
+    punteros.set(e.pointerId, p);
+    if (punteros.size >= 2) {
+      // Segundo dedo: pellizco. Lo que hacía el primero (mover el recorte, trazar la línea,
+      // comparar) se abandona.
+      e.stopPropagation();
+      capturar(e.pointerId);
+      if (punteros.size === 2) {
+        marcoRecorte?.cancelar();
+        clearTimeout(temporizador);
+        soltar();
+        toque = null;
+        empezarPellizco();
+      }
+      return;
+    }
+    const asa = !!(e.target as HTMLElement).dataset?.asa;
+    toque = { t: e.timeStamp, x: p.x, y: p.y, movido: false, asa };
+    // Las asas del recorte y la línea de enderezar son del marco de recorte.
+    if (asa || modoLinea) return;
+    if (pestana === 'recortar') {
+      // Sin zoom, el dedo mueve el recorte; con zoom, mueve la foto.
+      if (esAjustada(vista)) return;
+      e.stopPropagation();
+    }
+    capturar(e.pointerId);
+    if (!esAjustada(vista)) gesto = { tipo: 'arrastre', p0: p, v0: vista };
+    pulsar();
+  }
+
+  function moverZoom(e: PointerEvent) {
+    if (!punteros.has(e.pointerId)) return;
+    const p = pos(e);
+    punteros.set(e.pointerId, p);
+    if (toque && !toque.movido && Math.hypot(p.x - toque.x, p.y - toque.y) > 8) {
+      toque.movido = true;
+      clearTimeout(temporizador);
+    }
+    const m = medidas();
+    if (!gesto || !m) return;
+    e.stopPropagation();
+    if (gesto.tipo === 'pellizco') {
+      const [a, b] = [...punteros.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      const c = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      vista = acercar(gesto.v0, (gesto.v0.z * d) / gesto.d0, gesto.m0.x, gesto.m0.y, m, c.x - gesto.m0.x, c.y - gesto.m0.y);
+    } else {
+      if (!toque?.movido) return;
+      if (comparando) return;
+      if (cajaDetalle) ocultarDetalle();
+      vista = limitar({ ...gesto.v0, x: gesto.v0.x + p.x - gesto.p0.x, y: gesto.v0.y + p.y - gesto.p0.y }, m);
+    }
+  }
+
+  function arribaZoom(e: PointerEvent) {
+    if (!punteros.delete(e.pointerId)) return;
+    const habia = gesto;
+    if (gesto) e.stopPropagation();
+    if (gesto?.tipo === 'pellizco') {
+      if (vista.z < 1.03) vista = AJUSTADA;
+      // Queda un dedo: sigue arrastrando con él.
+      const resto = [...punteros.values()][0];
+      gesto = resto && !esAjustada(vista) ? { tipo: 'arrastre', p0: resto, v0: vista } : null;
+      if (resto) toque = { t: 0, x: resto.x, y: resto.y, movido: true, asa: false };
+    }
+    if (punteros.size > 0) return;
+    gesto = null;
+    soltar();
+    if (habia) programarDetalle();
+    // Doble toque: alterna entre ajustar a pantalla y 100 %.
+    const t = toque;
+    toque = null;
+    if (!t || t.movido || t.asa || modoLinea || e.type !== 'pointerup' || e.timeStamp - t.t > 300) {
+      ultimoToque = null;
+      return;
+    }
+    if (ultimoToque && t.t - ultimoToque.t < 350 && Math.hypot(t.x - ultimoToque.x, t.y - ultimoToque.y) < 40) {
+      ultimoToque = null;
+      dobleToque(t.x, t.y);
+    } else ultimoToque = { t: e.timeStamp, x: t.x, y: t.y };
+  }
+
+  function dobleToque(x: number, y: number) {
+    const m = medidas();
+    if (!m) return;
+    // Si la foto es más pequeña que la pantalla, el "100 %" sería alejarse: se acerca al doble.
+    animarA(esAjustada(vista) ? acercar(vista, m.z100 > 1.05 ? m.z100 : 2, x, y, m) : AJUSTADA);
+  }
+
+  let animacion = 0;
+  function animarA(destino: Vista) {
+    const desde = vista;
+    const t0 = performance.now();
+    ocultarDetalle();
+    cancelAnimationFrame(animacion);
+    const paso = (t: number) => {
+      const k = Math.min(1, (t - t0) / 220);
+      vista = mezclar(desde, destino, k);
+      if (k < 1) animacion = requestAnimationFrame(paso);
+      else programarDetalle();
+    };
+    animacion = requestAnimationFrame(paso);
+  }
+
+  // El marco de recorte sigue a la foto con zoom.
+  $effect(() => {
+    void [vista.z, vista.x, vista.y];
+    medirCaja();
+  });
+
+  // --- Zona nítida del zoom ---
+
+  let lienzoDetalle: HTMLCanvasElement | undefined = $state();
+  let detalle: Revelador | null = null;
+  /** Dónde se ve la zona nítida (en la sección); `null`: oculta. */
+  let cajaDetalle = $state<{ x: number; y: number; w: number; h: number } | null>(null);
+  /** Encuadre con el que se calculó (si cambia, hay que pedirla otra vez). */
+  let geoDetalle = '';
+  let tDetalle: ReturnType<typeof setTimeout> | undefined;
+
+  function ocultarDetalle() {
+    clearTimeout(tDetalle);
+    cajaDetalle = null;
+  }
+
+  function programarDetalle() {
+    clearTimeout(tDetalle);
+    tDetalle = setTimeout(pedirDetalle, 150);
+  }
+
+  /** Lo que determina la zona nítida: si cambia mientras se calcula, se descarta. */
+  function claveVista() {
+    const l = lienzoVisible();
+    return `${geometriaPrevia()}|${vista.z}|${vista.x}|${vista.y}|${l?.offsetWidth}x${l?.offsetHeight}|${l?.width}`;
+  }
+
+  const traerDetalle = ultimaGana(
+    async (geo: string, ventana: [number, number, number, number], ancho: number, alto: number, clave: string, caja: { x: number; y: number; w: number; h: number }) => ({
+      p: (await pedir('detalle', geo, ventana, ancho, alto)).valor,
+      geo,
+      clave,
+      caja,
+    }),
+    ({ p, geo, clave, caja }) => {
+      if (!detalle || clave !== claveVista() || gesto) return;
+      detalle.cargar(p.width, p.height, p.pixels);
+      detalle.dibujar(comparando ? null : ultimosParams, null);
+      geoDetalle = geo;
+      cajaDetalle = caja;
+    },
+    // No es grave: se queda la previa ampliada.
+    (e) => console.warn('zona nítida:', e.message),
+  );
+
+  function pedirDetalle() {
+    const l = lienzoVisible();
+    if (!usarGpu || !info || !l || !seccionFoto || esAjustada(vista) || gesto) return ocultarDetalle();
+    if (!detalle && lienzoDetalle) {
+      try {
+        detalle = new Revelador(lienzoDetalle);
+      } catch {
+        return;
+      }
+    }
+    if (!detalle) return;
+    const dpr = devicePixelRatio || 1;
+    const r = l.getBoundingClientRect();
+    // Si la previa ya da un píxel por cada píxel de la pantalla, no hace falta.
+    if (r.width * dpr <= l.width * 1.15) return ocultarDetalle();
+    const s = seccionFoto.getBoundingClientRect();
+    const x0 = Math.max(r.left, s.left);
+    const y0 = Math.max(r.top, s.top);
+    const x1 = Math.min(r.right, s.right);
+    const y1 = Math.min(r.bottom, s.bottom);
+    if (x1 - x0 < 1 || y1 - y0 < 1) return;
+    const ventana: [number, number, number, number] = [(x0 - r.left) / r.width, (y0 - r.top) / r.height, (x1 - r.left) / r.width, (y1 - r.top) / r.height];
+    const caja = { x: x0 - s.left, y: y0 - s.top, w: x1 - x0, h: y1 - y0 };
+    traerDetalle(geometriaPrevia(), ventana, Math.round(caja.w * dpr), Math.round(caja.h * dpr), claveVista(), caja);
   }
 
   // Miniaturas de los filtros: la foto pequeña con cada filtro, en un revelador aparte.
@@ -395,6 +659,8 @@
       ultimosParams = null;
       ultimoPlano = null;
       modoLinea = false;
+      vista = AJUSTADA;
+      ocultarDetalle();
       if (usarGpu) revelador?.dibujar(null);
       else pintar2d(base);
       diag.abrir = { leer: tLeido - t0, motor: abierto.ms, previa: previa.ms, total: performance.now() - t0 };
@@ -571,15 +837,21 @@
   <section
     bind:this={seccionFoto}
     class="foto"
-    aria-label="Foto (mantén pulsado para ver el original)"
-    onpointerdown={pulsar}
-    onpointerup={soltar}
-    onpointercancel={soltar}
-    onpointerleave={soltar}
+    aria-label="Foto (pellizca o toca dos veces para hacer zoom; mantén pulsado para ver el original)"
+    onpointerdowncapture={abajoZoom}
+    onpointermovecapture={moverZoom}
+    onpointerupcapture={arribaZoom}
+    onpointercancelcapture={arribaZoom}
     oncontextmenu={(e) => e.preventDefault()}
   >
-    <canvas bind:this={lienzoGpu} class:oculto={!info || !usarGpu}></canvas>
-    <canvas bind:this={lienzo2d} class:oculto={!info || usarGpu}></canvas>
+    <canvas bind:this={lienzoGpu} class:oculto={!info || !usarGpu} style:transform={transformacion}></canvas>
+    <canvas bind:this={lienzo2d} class:oculto={!info || usarGpu} style:transform={transformacion}></canvas>
+    <canvas
+      bind:this={lienzoDetalle}
+      class="detalle"
+      class:oculto={!info || !cajaDetalle}
+      style="left: {cajaDetalle?.x ?? 0}px; top: {cajaDetalle?.y ?? 0}px; width: {cajaDetalle?.w ?? 0}px; height: {cajaDetalle?.h ?? 0}px"
+    ></canvas>
     {#if !info}
       <div class="vacio">
         {#if estado === 'cargando'}
@@ -593,6 +865,7 @@
     {#if info && pestana === 'recortar' && !comparando && caja.w > 0}
       <div class="sobre" style="left: {caja.x}px; top: {caja.y}px; width: {caja.w}px; height: {caja.h}px">
         <MarcoRecorte
+          bind:this={marcoRecorte}
           recorte={receta.geometria.recorte ?? COMPLETO}
           aspecto={aspectoFijo()}
           {modoLinea}
@@ -772,6 +1045,7 @@
     place-items: center;
     padding: 4px 16px;
     touch-action: none;
+    overflow: hidden;
     user-select: none;
     -webkit-user-select: none;
     -webkit-touch-callout: none;
@@ -784,6 +1058,15 @@
   }
   .oculto {
     display: none;
+  }
+  .detalle {
+    position: absolute;
+    /* Sin área de cuadrícula: así se coloca respecto a la sección, como el marco de recorte. */
+    grid-area: auto;
+    border-radius: 0;
+    max-width: none;
+    max-height: none;
+    pointer-events: none;
   }
   .vacio {
     text-align: center;

@@ -238,6 +238,37 @@ fn tiled_export_matches_the_preview_sampling_with_no_seams() {
 }
 
 #[test]
+fn the_zoom_detail_is_the_exported_photo_without_adjustments() {
+    let src = png(700, 520, false);
+    let mut ed = Editor::new();
+    ed.open("a.png", &src, 24.0, 512).unwrap();
+    for json in ["{}", r#"{"giro": 1, "espejoV": true, "angulo": 9, "recorte": [0.5, 0.5, 0.7, 0.6]}"#] {
+        let g = revela_core::geometria::Geometria::de_json(json).unwrap();
+        let exp = png_bytes(&ed, &Default::default(), &g);
+        let (w, h) = (exp.width() as usize, exp.height() as usize);
+        let exp = exp.convert(ChannelLayout::Rgba, SampleType::U8);
+        // Una ventana a escala 1:1 (pidiendo de más: se limita a la resolución de la foto).
+        let d = ed.detalle(&g, [0.25, 0.5, 0.75, 1.0], 10_000, 10_000).unwrap();
+        let (x0, y0) = ((0.25 * w as f64) as usize, (0.5 * h as f64) as usize);
+        assert_eq!((d.width as usize, d.height as usize), ((0.75 * w as f64) as usize - x0, h - y0), "{json}");
+        let max = (0..d.height as usize)
+            .flat_map(|y| (0..d.width as usize).map(move |x| (x, y)))
+            .map(|(x, y)| {
+                let a = &d.pixels[(y * d.width as usize + x) * 4..][..4];
+                let b = &exp.data()[((y0 + y) * w + x0 + x) * 4..][..4];
+                a.iter().zip(b).map(|(p, q)| p.abs_diff(*q)).max().unwrap_or(0)
+            })
+            .max()
+            .unwrap_or(0);
+        assert!(max <= 1, "{json}: diferencia máxima {max}/255");
+        // Reducida, cabe en lo pedido.
+        let d = ed.detalle(&g, [0.0, 0.0, 1.0, 1.0], 100, 80).unwrap();
+        assert_eq!((d.width, d.height), (100, 80));
+    }
+    assert!(ed.detalle(&Default::default(), [0.5, 0.5, 0.5, 1.0], 10, 10).is_err());
+}
+
+#[test]
 fn a_fitted_straightening_crop_has_no_empty_corners() {
     let src = png(400, 300, false);
     let mut ed = Editor::new();

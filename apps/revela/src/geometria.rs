@@ -115,6 +115,20 @@ impl Geometria {
 }
 
 impl Plano {
+    /// Una ventana de la salida (`[x0, y0, x1, y1]` en fracciones, 0..1) dibujada a
+    /// `ancho`×`alto` píxeles: el zoom de la previa. Con la ventana entera y el tamaño de la
+    /// salida, es el mismo plano.
+    pub fn ventana(&self, [x0, y0, x1, y1]: [f64; 4], ancho: u32, alto: u32) -> Plano {
+        let (ancho, alto) = (ancho.max(1), alto.max(1));
+        let (w, h) = (f64::from(self.ancho), f64::from(self.alto));
+        // Píxel de la ventana a' → salida u' = ox + sx·a'.
+        let (ox, oy) = (x0 * w, y0 * h);
+        let (sx, sy) = ((x1 - x0) * w / f64::from(ancho), (y1 - y0) * h / f64::from(alto));
+        let m = self.m.map(f64::from);
+        let m = [m[0] * sx, m[1] * sy, m[0] * ox + m[1] * oy + m[2], m[3] * sx, m[4] * sy, m[3] * ox + m[4] * oy + m[5]].map(|v| v as f32);
+        Plano { ancho, alto, m, origen: self.origen }
+    }
+
     /// Punto de la foto de origen para el centro del píxel `(u, v)` de la salida.
     pub fn origen_de(&self, u: u32, v: u32) -> (f32, f32) {
         let (pu, pv) = (u as f32 + 0.5, v as f32 + 0.5);
@@ -236,6 +250,24 @@ mod tests {
         let p = g(r#"{"giro": 1, "recorte": [0.5, 0.25, 1.0, 0.5]}"#).plano(40, 30);
         assert_eq!((p.ancho, p.alto), (30, 20));
         assert_eq!(donde(&p, 0, 0), (0.5, 29.5));
+    }
+
+    #[test]
+    fn a_window_zooms_into_the_output() {
+        let p = g(r#"{"angulo": 7, "giro": 1}"#).plano(400, 300);
+        // La ventana entera al mismo tamaño es el mismo plano.
+        let v = p.ventana([0.0, 0.0, 1.0, 1.0], p.ancho, p.alto);
+        assert_eq!((v.ancho, v.alto), (p.ancho, p.alto));
+        assert!(v.m.iter().zip(p.m).all(|(a, b)| (a - b).abs() < 1e-3), "{:?} {:?}", v.m, p.m);
+        // El cuarto inferior derecho a la misma escala: el píxel (0, 0) de la ventana es el
+        // (ancho/2, alto/2) de la salida.
+        let v = p.ventana([0.5, 0.5, 1.0, 1.0], p.ancho / 2, p.alto / 2);
+        let (a, b) = (v.origen_de(0, 0), p.origen_de(p.ancho / 2, p.alto / 2));
+        assert!((a.0 - b.0).abs() < 1e-3 && (a.1 - b.1).abs() < 1e-3, "{a:?} {b:?}");
+        // A mitad de tamaño, cada píxel de la ventana cubre dos de la salida.
+        let v = p.ventana([0.0, 0.0, 1.0, 1.0], p.ancho / 2, p.alto / 2);
+        let (a, b, c) = (v.origen_de(0, 0), p.origen_de(0, 0), p.origen_de(1, 1));
+        assert!((a.0 - (b.0 + c.0) / 2.0).abs() < 1e-3 && (a.1 - (b.1 + c.1) / 2.0).abs() < 1e-3);
     }
 
     #[test]

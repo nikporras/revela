@@ -202,6 +202,35 @@ impl Editor {
         Ok((p.ancho, p.alto))
     }
 
+    /// Una ventana del encuadre a resolución completa, para ver nítida la previa con zoom:
+    /// `ventana` es `[x0, y0, x1, y1]` en fracciones de la salida y se dibuja a `ancho`×`alto`
+    /// (como mucho, la resolución de la foto). Sin ajustes: los pone la GPU, así que mover un
+    /// slider no obliga a pedirla otra vez.
+    pub fn detalle(&self, geom: &Geometria, ventana: [f64; 4], ancho: u32, alto: u32) -> Result<Preview> {
+        let doc = self.doc()?;
+        let [x0, y0, x1, y1] = ventana.map(|v| if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 });
+        if x1 <= x0 || y1 <= y0 {
+            return Err(Error("ventana vacía".into()));
+        }
+        let completo = geom.plano(doc.size.width, doc.size.height);
+        // Nunca más píxeles que los de la foto en esa ventana (ni más de 4096 de lado).
+        let tope = |n: u32, f: f64, lado: u32| n.min((f * f64::from(lado)).ceil() as u32).clamp(1, 4096);
+        let plano = completo.ventana([x0, y0, x1, y1], tope(ancho, x1 - x0, completo.ancho), tope(alto, y1 - y0, completo.alto));
+        let (w, h) = (plano.ancho as usize, plano.alto as usize);
+        let mut pixels = vec![0u8; w * h * 4];
+        por_bloques(&doc, &plano, |px, u0, v0, tw, _| {
+            for (k, q) in px.iter().enumerate() {
+                let (x, y) = (u0 as usize + k % tw, v0 as usize + k / tw);
+                let i = (y * w + x) * 4;
+                if let Some(o) = pixels.get_mut(i..i + 4) {
+                    o.copy_from_slice(&q.map(to_u8));
+                }
+            }
+            Ok(())
+        })?;
+        Ok(Preview { width: plano.ancho, height: plano.alto, pixels })
+    }
+
     /// Codifica la foto a resolución de trabajo completa con los ajustes. El motor compone la
     /// foto **por franjas** y revela cada una por separado (los ajustes son por píxel, así que no
     /// hay costuras): la memoria no pasa de la foto, su salida de 8 bits y una franja.
@@ -292,8 +321,24 @@ fn revelar(doc: &Document, ajustes: &CameraRaw, geom: &Geometria, canales: usize
         })?;
         return Ok((out, transparente));
     }
+    let total = (plano.ancho.div_ceil(BLOQUE) * plano.alto.div_ceil(BLOQUE)).max(1) as f32;
+    let mut hechos = 0.0;
+    por_bloques(doc, &plano, |px, u0, v0, tw, th| {
+        develop(px, tw, th, ajustes, false);
+        escribir(px, u0 as usize, v0 as usize, tw)?;
+        hechos += 1.0;
+        progreso(hechos / total);
+        Ok(())
+    })?;
+    Ok((out, transparente))
+}
+
+/// Recorre la salida de `plano` por bloques de [`BLOQUE`] px: cada bloque pide al motor solo la
+/// zona de la foto que cubre ([`geometria::Plano::huella`]) y la remuestrea con el mismo bilineal
+/// que la GPU. `f` recibe los píxeles del bloque (f32, sin ajustes), su esquina y su tamaño.
+fn por_bloques(doc: &Document, plano: &geometria::Plano, mut f: impl FnMut(&mut [[f32; 4]], u32, u32, usize, usize) -> Result<()>) -> Result<()> {
+    let canvas = doc.bounds();
     let (bx, by) = (plano.ancho.div_ceil(BLOQUE), plano.alto.div_ceil(BLOQUE));
-    let total = (bx * by).max(1) as f32;
     let (sw, sh) = plano.origen;
     for j in 0..by {
         for i in 0..bx {
@@ -316,12 +361,10 @@ fn revelar(doc: &Document, ajustes: &CameraRaw, geom: &Geometria, canales: usize
                     *q = bilineal(x, y, sw, sh, texel);
                 }
             }
-            develop(&mut px, tw, th, ajustes, false);
-            escribir(&px, u0 as usize, v0 as usize, tw)?;
-            progreso((j * bx + i + 1) as f32 / total);
+            f(&mut px, u0, v0, tw, th)?;
         }
     }
-    Ok((out, transparente))
+    Ok(())
 }
 
 /// 0..1 → 0..255, redondeando (como la GPU al escribir un RGBA8).

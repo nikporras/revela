@@ -60,6 +60,14 @@ impl Revela {
         Ok(vec![w, h])
     }
 
+    /// Una ventana `[x0, y0, x1, y1]` (fracciones) del encuadre a resolución completa, dibujada a
+    /// como mucho `ancho`×`alto`, sin ajustes: la previa nítida con zoom.
+    #[allow(clippy::too_many_arguments)]
+    pub fn detalle(&self, geometria_json: &str, x0: f64, y0: f64, x1: f64, y1: f64, ancho: u32, alto: u32) -> Result<JsValue, JsError> {
+        let g = Geometria::de_json(geometria_json).map_err(js_err)?;
+        preview_js(self.editor.detalle(&g, [x0, y0, x1, y1], ancho, alto).map_err(js_err)?)
+    }
+
     /// Exporta a resolución completa con ajustes y geometría: `format` "jpg" o "png", `quality`
     /// 1..100. `progreso` recibe la fracción hecha (0..1) mientras trabaja.
     pub fn export(&self, format: &str, quality: u8, keep_location: bool, ajustes_json: &str, geometria_json: &str, progreso: &js_sys::Function) -> Result<Vec<u8>, JsError> {
