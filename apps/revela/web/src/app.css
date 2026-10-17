@@ -1,0 +1,47 @@
+:root {
+  color-scheme: dark;
+  --fondo: #0e0f12;
+  --panel: #17191e;
+  --panel-2: #22252c;
+  --borde: #2e323a;
+  --texto: #eceef2;
+  --texto-2: #9aa1ad;
+  --acento: #f2b84b;
+  --acento-texto: #1a1408;
+  --error: #ff7a6b;
+  --radio: 14px;
+  --toque: 52px;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 16px;
+  background: var(--fondo);
+  color: var(--texto);
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

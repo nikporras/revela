@@ -1,0 +1,4 @@
+node_modules/
+dist/
+# Lo genera ../build-wasm.sh
+src/wasm/
