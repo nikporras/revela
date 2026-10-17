@@ -14,6 +14,8 @@ Ninguno por ahora.
 | Fecha | Archivo | Cambio | Motivo |
 | --- | --- | --- | --- |
 | 2026-10-17 | `.github/workflows/revela-pages.yml` | Nuevo | Pruebas, build y despliegue de Revela en GitHub Pages. |
+| 2026-10-17 | `docs/brand/` | Borrado | Logos de ArtCraft: su licencia exige quitarlos en versiones modificadas. |
+| 2026-10-17 | `NOTICE`, `README.md`, `ATTRIBUTION.md`, `AGENTS.md`, `docs/contributing.md`, `book/src/project/licenses.md` | Una frase cada uno | Ya no apuntan a `docs/brand/`; dicen que los logos no se incluyen. `NOTICE` conserva el copyright y las licencias. |
 
 Los workflows heredados de PhotoCraft (`ci.yml`, `release.yml`, etc.) **no se borran**: se
 desactivan en GitHub (Actions › workflow › Disable workflow), así las fusiones con `upstream`
