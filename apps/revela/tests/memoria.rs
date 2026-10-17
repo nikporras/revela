@@ -34,5 +34,5 @@ fn pico_por_etapa() {
     let info = etapa("abrir", || ed.open(&ruta, &bytes, 24.0, 2048).unwrap());
     println!("           {}×{} ({:.1} MP)", info.width, info.height, f64::from(info.width) * f64::from(info.height) / 1e6);
     etapa("previa", || ed.preview(2048).unwrap());
-    etapa("exportar", || ed.export(Default::default(), &Default::default()).unwrap());
+    etapa("exportar", || ed.export(Default::default(), &Default::default(), &Default::default(), &|_| {}).unwrap());
 }

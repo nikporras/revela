@@ -3,6 +3,7 @@
 
 use wasm_bindgen::prelude::*;
 
+use crate::geometria::{Geometria, angulo_de_linea};
 use crate::{Editor, ExportFormat, ExportSettings, Preview, ajustes};
 
 fn js_err(e: crate::Error) -> JsError {
@@ -43,19 +44,53 @@ impl Revela {
         preview_js(self.editor.preview(max_side).map_err(js_err)?)
     }
 
-    /// La previa con los ajustes aplicados por el motor (para compararla con la GPU).
+    /// La previa con los ajustes y la geometría aplicados por el motor (para compararla con la GPU).
     #[wasm_bindgen(js_name = developPreview)]
-    pub fn develop_preview(&self, max_side: u32, ajustes_json: &str) -> Result<JsValue, JsError> {
+    pub fn develop_preview(&self, max_side: u32, ajustes_json: &str, geometria_json: &str) -> Result<JsValue, JsError> {
         let a = ajustes::sanear(ajustes_json).map_err(js_err)?;
-        preview_js(self.editor.develop_preview(max_side, &a).map_err(js_err)?)
+        let g = Geometria::de_json(geometria_json).map_err(js_err)?;
+        preview_js(self.editor.develop_preview(max_side, &a, &g).map_err(js_err)?)
     }
 
-    /// Exporta a resolución completa con los ajustes: `format` "jpg" o "png", `quality` 1..100.
-    pub fn export(&self, format: &str, quality: u8, keep_location: bool, ajustes_json: &str) -> Result<Vec<u8>, JsError> {
+    /// Tamaño `[ancho, alto]` de la foto exportada con esta geometría.
+    #[wasm_bindgen(js_name = exportSize)]
+    pub fn export_size(&self, geometria_json: &str) -> Result<Vec<u32>, JsError> {
+        let g = Geometria::de_json(geometria_json).map_err(js_err)?;
+        let (w, h) = self.editor.export_size(&g).map_err(js_err)?;
+        Ok(vec![w, h])
+    }
+
+    /// Exporta a resolución completa con ajustes y geometría: `format` "jpg" o "png", `quality`
+    /// 1..100. `progreso` recibe la fracción hecha (0..1) mientras trabaja.
+    pub fn export(&self, format: &str, quality: u8, keep_location: bool, ajustes_json: &str, geometria_json: &str, progreso: &js_sys::Function) -> Result<Vec<u8>, JsError> {
         let format = ExportFormat::parse(format).map_err(js_err)?;
         let a = ajustes::sanear(ajustes_json).map_err(js_err)?;
-        self.editor.export(ExportSettings { format, quality, keep_location }, &a).map_err(js_err)
+        let g = Geometria::de_json(geometria_json).map_err(js_err)?;
+        let avisar = |f: f32| {
+            let _ = progreso.call1(&JsValue::NULL, &JsValue::from_f64(f64::from(f)));
+        };
+        self.editor.export(ExportSettings { format, quality, keep_location }, &a, &g, &avisar).map_err(js_err)
     }
+}
+
+/// El plano de una geometría para una foto de `w`×`h`: `{ ancho, alto, m: Float32Array(6) }`
+/// (ver `geometria::Plano`). La GPU lo usa tal cual, con los mismos `f32`.
+#[wasm_bindgen]
+pub fn plano(geometria_json: &str, w: u32, h: u32) -> Result<JsValue, JsError> {
+    let p = Geometria::de_json(geometria_json).map_err(js_err)?.plano(w, h);
+    let o = js_sys::Object::new();
+    let set = |k: &str, v: JsValue| js_sys::Reflect::set(&o, &JsValue::from_str(k), &v).map(|_| ());
+    set("ancho", p.ancho.into())
+        .and(set("alto", p.alto.into()))
+        .and(set("m", js_sys::Float32Array::from(&p.m[..]).into()))
+        .map_err(|_| JsError::new("no se pudo preparar la respuesta"))?;
+    Ok(o.into())
+}
+
+/// Ángulo (grados, en el sentido del reloj) que deja horizontal o vertical la línea dibujada.
+#[wasm_bindgen(js_name = anguloLinea)]
+pub fn angulo_linea(x0: f64, y0: f64, x1: f64, y1: f64) -> f64 {
+    angulo_de_linea((x0, y0), (x1, y1))
 }
 
 fn preview_js(p: Preview) -> Result<JsValue, JsError> {

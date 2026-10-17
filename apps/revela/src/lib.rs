@@ -4,6 +4,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod ajustes;
+pub mod geometria;
 pub mod metadata;
 #[cfg(target_arch = "wasm32")]
 mod wasm;
@@ -13,6 +14,7 @@ use std::sync::Arc;
 
 use photocraft_algo::camera_raw::{CameraRaw, develop};
 use photocraft_doc::Document;
+use geometria::{Geometria, bilineal};
 use photocraft_engine::Session;
 use serde_json::json;
 
@@ -168,32 +170,53 @@ impl Editor {
 
     /// La misma previa con los ajustes aplicados **por el motor** (lo que hará la exportación).
     /// Sirve para comprobar que el shader de la GPU da lo mismo.
-    pub fn develop_preview(&self, max_side: u32, ajustes: &CameraRaw) -> Result<Preview> {
-        let mut p = self.preview(max_side)?;
-        let (w, h) = (p.width as usize, p.height as usize);
-        let mut px: Vec<[f32; 4]> = p.pixels.as_chunks::<4>().0.iter().map(|q| q.map(|v| f32::from(v) / 255.0)).collect();
+    pub fn develop_preview(&self, max_side: u32, ajustes: &CameraRaw, geom: &Geometria) -> Result<Preview> {
+        let base = self.preview(max_side)?;
+        let (bw, bh) = (base.width, base.height);
+        let plano = geom.plano(bw, bh);
+        let (w, h) = (plano.ancho as usize, plano.alto as usize);
+        let texel = |x: i32, y: i32| -> [f32; 4] {
+            let i = (y as usize * bw as usize + x as usize) * 4;
+            base.pixels.get(i..i + 4).map_or([0.0; 4], |q| [q[0], q[1], q[2], q[3]].map(|v| f32::from(v) / 255.0))
+        };
+        let mut px: Vec<[f32; 4]> = if geom.es_identidad() {
+            base.pixels.as_chunks::<4>().0.iter().map(|q| q.map(|v| f32::from(v) / 255.0)).collect()
+        } else {
+            (0..plano.alto)
+                .flat_map(|v| (0..plano.ancho).map(move |u| (u, v)))
+                .map(|(u, v)| {
+                    let (x, y) = plano.origen_de(u, v);
+                    bilineal(x, y, bw, bh, texel)
+                })
+                .collect()
+        };
         develop(&mut px, w, h, ajustes, false);
-        for (o, q) in p.pixels.as_chunks_mut::<4>().0.iter_mut().zip(&px) {
-            for c in 0..3 {
-                o[c] = to_u8(q[c]);
-            }
-        }
-        Ok(p)
+        let pixels = px.iter().flat_map(|q| [to_u8(q[0]), to_u8(q[1]), to_u8(q[2]), to_u8(q[3])]).collect();
+        Ok(Preview { width: plano.ancho, height: plano.alto, pixels })
+    }
+
+    /// Tamaño de la foto exportada con esta geometría.
+    pub fn export_size(&self, geom: &Geometria) -> Result<(u32, u32)> {
+        let doc = self.doc()?;
+        let p = geom.plano(doc.size.width, doc.size.height);
+        Ok((p.ancho, p.alto))
     }
 
     /// Codifica la foto a resolución de trabajo completa con los ajustes. El motor compone la
     /// foto **por franjas** y revela cada una por separado (los ajustes son por píxel, así que no
     /// hay costuras): la memoria no pasa de la foto, su salida de 8 bits y una franja.
-    pub fn export(&self, settings: ExportSettings, ajustes: &CameraRaw) -> Result<Vec<u8>> {
+    pub fn export(&self, settings: ExportSettings, ajustes: &CameraRaw, geom: &Geometria, progreso: &dyn Fn(f32)) -> Result<Vec<u8>> {
         let doc = self.doc()?;
-        let (w, h) = (doc.size.width as usize, doc.size.height as usize);
+        let plano = geom.plano(doc.size.width, doc.size.height);
+        let (w, h) = (plano.ancho as usize, plano.alto as usize);
         // Una pasada a RGB (lo transparente, sobre blanco). Solo un PNG con transparencia necesita
         // una segunda pasada con alfa: así una foto normal ocupa 3 bytes por píxel y no 4 + 3.
-        let (rgb, transparente) = revelar(&doc, ajustes, 3)?;
+        // El revelado es el 90 % del trabajo; codificar, el resto.
+        let (rgb, transparente) = revelar(&doc, ajustes, geom, 3, &|f| progreso(f * 0.9))?;
         let alpha = transparente && settings.format == ExportFormat::Png;
         let data = if alpha {
             drop(rgb);
-            revelar(&doc, ajustes, 4)?.0
+            revelar(&doc, ajustes, geom, 4, &|f| progreso(0.45 + f * 0.45))?.0
         } else {
             rgb
         };
@@ -214,36 +237,41 @@ impl Editor {
             ExportFormat::Png => photocraft_codecs::Format::Png,
         };
         let opts = photocraft_codecs::EncodeOptions { jpeg_quality: settings.quality.clamp(1, 100), ..Default::default() };
-        photocraft_codecs::encode(&img, format, &opts).map_err(|e| Error(format!("no se pudo exportar: {e}")))
+        let bytes = photocraft_codecs::encode(&img, format, &opts).map_err(|e| Error(format!("no se pudo exportar: {e}")))?;
+        progreso(1.0);
+        Ok(bytes)
     }
 }
 
 /// Filas por franja al exportar: poca memoria (una franja de 4000 px de ancho son ~16 MB en f32).
 const FILAS_FRANJA: i32 = 256;
 
-/// La foto entera compuesta por franjas y revelada con `ajustes`, en 8 bits con `canales` 3 (RGB,
-/// con lo transparente sobre blanco) o 4 (RGBA). Devuelve también si había transparencia.
-fn revelar(doc: &Document, ajustes: &CameraRaw, canales: usize) -> Result<(Vec<u8>, bool)> {
-    let (w, h) = (doc.size.width as usize, doc.size.height as usize);
+/// Lado de los bloques al exportar con geometría.
+const BLOQUE: u32 = 256;
+
+/// La foto revelada con `ajustes` y encuadrada con `geom`, en 8 bits con `canales` 3 (RGB, con lo
+/// transparente sobre blanco) o 4 (RGBA). Devuelve también si había transparencia.
+///
+/// Sin geometría, el motor compone la foto por franjas. Con geometría, la salida se recorre por
+/// bloques: cada uno pide al motor solo la zona de la foto que cubre ([`geometria::Plano::huella`])
+/// y la remuestrea con el mismo bilineal que la GPU. La memoria no pasa de la salida y un bloque.
+fn revelar(doc: &Document, ajustes: &CameraRaw, geom: &Geometria, canales: usize, progreso: &dyn Fn(f32)) -> Result<(Vec<u8>, bool)> {
+    let plano = geom.plano(doc.size.width, doc.size.height);
+    let (w, h) = (plano.ancho as usize, plano.alto as usize);
     let canvas = doc.bounds();
     let len = w.checked_mul(h).and_then(|n| n.checked_mul(canales)).ok_or_else(|| Error("foto demasiado grande".into()))?;
     let mut out = Vec::new();
     out.try_reserve_exact(len).map_err(|_| Error("no hay memoria para exportar la foto".into()))?;
     out.resize(len, 0u8);
     let mut transparente = false;
-    photocraft_compose::render_bands(doc, canvas, FILAS_FRANJA, |mut band| -> Result<()> {
-        let y0 = usize::try_from(band.rect.y0 - canvas.y0).map_err(|_| Error("franja fuera de la foto".into()))?;
-        let n = band.rect.height() as usize;
-        develop(&mut band.px, w, n, ajustes, false);
-        let filas = out.get_mut(y0 * w * canales..(y0 + n) * w * canales).ok_or_else(|| Error("franja fuera de la foto".into()))?;
-        for (o, q) in filas.chunks_exact_mut(canales).zip(&band.px) {
+    let mut escribir = |px: &[[f32; 4]], x0: usize, y0: usize, bw: usize| -> Result<()> {
+        for (i, q) in px.iter().enumerate() {
+            let (x, y) = (x0 + i % bw, y0 + i / bw);
+            let o = out.get_mut((y * w + x) * canales..(y * w + x + 1) * canales).ok_or_else(|| Error("bloque fuera de la foto".into()))?;
             let a = to_u8(q[3]);
             transparente |= a < 255;
             if canales == 4 {
-                for c in 0..3 {
-                    o[c] = to_u8(q[c]);
-                }
-                o[3] = a;
+                o.copy_from_slice(&[to_u8(q[0]), to_u8(q[1]), to_u8(q[2]), a]);
             } else {
                 let a = u16::from(a);
                 for c in 0..3 {
@@ -252,7 +280,47 @@ fn revelar(doc: &Document, ajustes: &CameraRaw, canales: usize) -> Result<(Vec<u
             }
         }
         Ok(())
-    })?;
+    };
+    if geom.es_identidad() {
+        photocraft_compose::render_bands(doc, canvas, FILAS_FRANJA, |mut band| -> Result<()> {
+            let y0 = usize::try_from(band.rect.y0 - canvas.y0).map_err(|_| Error("franja fuera de la foto".into()))?;
+            let n = band.rect.height() as usize;
+            develop(&mut band.px, w, n, ajustes, false);
+            escribir(&band.px, 0, y0, w)?;
+            progreso((y0 + n) as f32 / h.max(1) as f32);
+            Ok(())
+        })?;
+        return Ok((out, transparente));
+    }
+    let (bx, by) = (plano.ancho.div_ceil(BLOQUE), plano.alto.div_ceil(BLOQUE));
+    let total = (bx * by).max(1) as f32;
+    let (sw, sh) = plano.origen;
+    for j in 0..by {
+        for i in 0..bx {
+            let (u0, v0) = (i * BLOQUE, j * BLOQUE);
+            let (u1, v1) = ((u0 + BLOQUE).min(plano.ancho), (v0 + BLOQUE).min(plano.alto));
+            let (tw, th) = ((u1 - u0) as usize, (v1 - v0) as usize);
+            let mut px = vec![[0.0f32; 4]; tw * th];
+            if let Some([x0, y0, x1, y1]) = plano.huella(u0, v0, u1, v1) {
+                let zona = photocraft_compose::render(doc, photocraft_geom::Rect::new(canvas.x0 + x0, canvas.y0 + y0, canvas.x0 + x1, canvas.y0 + y1));
+                let zw = (x1 - x0) as usize;
+                let texel = |x: i32, y: i32| -> [f32; 4] {
+                    if x < x0 || y < y0 || x >= x1 || y >= y1 {
+                        return [0.0; 4];
+                    }
+                    zona.px.get((y - y0) as usize * zw + (x - x0) as usize).copied().unwrap_or([0.0; 4])
+                };
+                for (k, q) in px.iter_mut().enumerate() {
+                    let (u, v) = (u0 + (k % tw) as u32, v0 + (k / tw) as u32);
+                    let (x, y) = plano.origen_de(u, v);
+                    *q = bilineal(x, y, sw, sh, texel);
+                }
+            }
+            develop(&mut px, tw, th, ajustes, false);
+            escribir(&px, u0 as usize, v0 as usize, tw)?;
+            progreso((j * bx + i + 1) as f32 / total);
+        }
+    }
     Ok((out, transparente))
 }
 

@@ -47,7 +47,7 @@ fn opens_upright_and_exports_without_location() {
     assert_eq!(info.format, "jpeg");
     assert!(!info.downscaled());
 
-    let out = ed.export(ExportSettings::default(), &Default::default()).unwrap();
+    let out = ed.export(ExportSettings::default(), &Default::default(), &Default::default(), &|_| {}).unwrap();
     assert!(!has_gps_bytes(&out), "la ubicación GPS quedó en el JPG exportado");
     let back = photocraft_codecs::decode(&out).unwrap();
     assert_eq!((back.width(), back.height()), (40, 60));
@@ -62,7 +62,7 @@ fn opens_upright_and_exports_without_location() {
 fn keeps_location_only_when_asked() {
     let mut ed = Editor::new();
     ed.open("a.jpg", &camera_jpeg(), 24.0, 2048).unwrap();
-    let out = ed.export(ExportSettings { keep_location: true, ..Default::default() }, &Default::default()).unwrap();
+    let out = ed.export(ExportSettings { keep_location: true, ..Default::default() }, &Default::default(), &Default::default(), &|_| {}).unwrap();
     assert!(has_gps_bytes(&out));
 }
 
@@ -70,7 +70,7 @@ fn keeps_location_only_when_asked() {
 fn png_export_has_no_location_either() {
     let mut ed = Editor::new();
     ed.open("a.jpg", &camera_jpeg(), 24.0, 2048).unwrap();
-    let out = ed.export(ExportSettings { format: ExportFormat::Png, ..Default::default() }, &Default::default()).unwrap();
+    let out = ed.export(ExportSettings { format: ExportFormat::Png, ..Default::default() }, &Default::default(), &Default::default(), &|_| {}).unwrap();
     assert!(out.starts_with(b"\x89PNG"));
     assert!(!has_gps_bytes(&out));
 }
@@ -95,7 +95,7 @@ fn preview_comes_from_the_reduced_copy_and_export_from_the_full_photo() {
     assert_eq!((info.width, info.height), (40, 60));
     let p = ed.preview(2048).unwrap();
     assert_eq!((p.width, p.height), (20, 30));
-    let out = photocraft_codecs::decode(&ed.export(ExportSettings::default(), &Default::default()).unwrap()).unwrap();
+    let out = photocraft_codecs::decode(&ed.export(ExportSettings::default(), &Default::default(), &Default::default(), &|_| {}).unwrap()).unwrap();
     assert_eq!((out.width(), out.height()), (40, 60));
 }
 
@@ -154,7 +154,7 @@ fn adjusted_export_matches_the_engines_camera_raw_filter() {
     let ajustes = revela_core::ajustes::sanear(json).unwrap();
     let mut ed = Editor::new();
     ed.open("a.png", &src, 24.0, 2048).unwrap();
-    let ours = photocraft_codecs::decode(&ed.export(ExportSettings { format: ExportFormat::Png, ..Default::default() }, &ajustes).unwrap()).unwrap();
+    let ours = photocraft_codecs::decode(&ed.export(ExportSettings { format: ExportFormat::Png, ..Default::default() }, &ajustes, &Default::default(), &|_| {}).unwrap()).unwrap();
 
     // El mismo revelado hecho por el comando del motor sobre la foto entera.
     let mut s = photocraft_engine::Session::new();
@@ -171,18 +171,96 @@ fn adjusted_export_matches_the_engines_camera_raw_filter() {
 fn transparency_is_kept_in_png_and_matted_in_jpg() {
     let mut ed = Editor::new();
     ed.open("t.png", &png(64, 32, true), 24.0, 2048).unwrap();
-    let p = photocraft_codecs::decode(&ed.export(ExportSettings { format: ExportFormat::Png, ..Default::default() }, &Default::default()).unwrap()).unwrap();
+    let p = photocraft_codecs::decode(&ed.export(ExportSettings { format: ExportFormat::Png, ..Default::default() }, &Default::default(), &Default::default(), &|_| {}).unwrap()).unwrap();
     assert!(p.layout().has_alpha());
-    let j = photocraft_codecs::decode(&ed.export(ExportSettings::default(), &Default::default()).unwrap()).unwrap();
+    let j = photocraft_codecs::decode(&ed.export(ExportSettings::default(), &Default::default(), &Default::default(), &|_| {}).unwrap()).unwrap();
     let j = j.convert(ChannelLayout::Rgb, SampleType::U8);
     // La esquina transparente queda blanca en el JPG.
     assert!(j.data()[..3].iter().all(|v| *v > 245), "{:?}", &j.data()[..3]);
+}
+
+fn png_bytes(ed: &Editor, ajustes: &photocraft_algo::camera_raw::CameraRaw, geom: &revela_core::geometria::Geometria) -> Image {
+    let b = ed.export(ExportSettings { format: ExportFormat::Png, ..Default::default() }, ajustes, geom, &|_| {}).unwrap();
+    photocraft_codecs::decode(&b).unwrap()
+}
+
+/// La misma foto pasada por un comando del motor y exportada en PNG.
+fn engine(src: &[u8], cmd: &str) -> Image {
+    let mut s = photocraft_engine::Session::new();
+    s.add_document(photocraft_io::import("a.png", src).unwrap().document, None);
+    s.execute(cmd, serde_json::json!({})).unwrap();
+    let b = photocraft_io::export(&s.active().unwrap().doc, "png", &Default::default()).unwrap().bytes;
+    photocraft_codecs::decode(&b).unwrap()
+}
+
+fn rgb(i: &Image) -> Vec<u8> {
+    i.convert(ChannelLayout::Rgb, SampleType::U8).data().to_vec()
+}
+
+#[test]
+fn quarter_turns_and_flips_match_the_engines_commands_exactly() {
+    let src = png(300, 200, false);
+    let mut ed = Editor::new();
+    ed.open("a.png", &src, 24.0, 2048).unwrap();
+    for (json, cmd) in [
+        (r#"{"giro": 1}"#, "image.imageRotation.90cw"),
+        (r#"{"giro": 3}"#, "image.imageRotation.90ccw"),
+        (r#"{"giro": 2}"#, "image.imageRotation.180"),
+        (r#"{"espejoH": true}"#, "image.imageRotation.flipCanvasHorizontal"),
+        (r#"{"espejoV": true}"#, "image.imageRotation.flipCanvasVertical"),
+    ] {
+        let g = revela_core::geometria::Geometria::de_json(json).unwrap();
+        let ours = png_bytes(&ed, &Default::default(), &g);
+        let theirs = engine(&src, cmd);
+        assert_eq!((ours.width(), ours.height()), (theirs.width(), theirs.height()), "{cmd}");
+        assert!(rgb(&ours) == rgb(&theirs), "{cmd}: los píxeles no coinciden");
+    }
+}
+
+#[test]
+fn tiled_export_matches_the_preview_sampling_with_no_seams() {
+    // 700×520: varios bloques de 256 en cada eje; la previa a tamaño completo usa el mismo muestreo.
+    let src = png(700, 520, false);
+    let mut ed = Editor::new();
+    ed.open("a.png", &src, 24.0, 4096).unwrap();
+    let ajustes = revela_core::ajustes::sanear(r#"{"exposure": 0.3, "contrast": 25, "vibrance": 20}"#).unwrap();
+    for json in [r#"{"angulo": 12.5, "recorte": [0.5, 0.5, 0.6, 0.6]}"#, r#"{"giro": 1, "espejoH": true, "angulo": -7, "recorte": [0.45, 0.55, 0.7, 0.5]}"#] {
+        let g = revela_core::geometria::Geometria::de_json(json).unwrap();
+        let exp = png_bytes(&ed, &ajustes, &g);
+        let pre = ed.develop_preview(4096, &ajustes, &g).unwrap();
+        assert_eq!((exp.width(), exp.height()), (pre.width, pre.height), "{json}");
+        let a = rgb(&exp);
+        let b: Vec<u8> = pre.pixels.as_chunks::<4>().0.iter().flat_map(|q| [q[0], q[1], q[2]]).collect();
+        let max = a.iter().zip(&b).map(|(x, y)| x.abs_diff(*y)).max().unwrap_or(0);
+        assert!(max <= 1, "{json}: diferencia máxima {max}/255");
+        assert_eq!((exp.width(), exp.height()), ed.export_size(&g).unwrap());
+    }
+}
+
+#[test]
+fn a_fitted_straightening_crop_has_no_empty_corners() {
+    let src = png(400, 300, false);
+    let mut ed = Editor::new();
+    ed.open("a.png", &src, 24.0, 2048).unwrap();
+    // El rectángulo más grande con la proporción de la foto dentro de la foto girada 15°
+    // (la misma fórmula que usa la interfaz).
+    let (w, h, t) = (400.0f64, 300.0f64, 15f64.to_radians());
+    let a = w / h;
+    let (c, s) = (t.cos().abs(), t.sin().abs());
+    let hw = ((w / 2.0) / (c + s / a)).min((h / 2.0) / (s + c / a));
+    let (cw, ch) = (2.0 * hw / w * 0.999, 2.0 * hw / a / h * 0.999);
+    let g = revela_core::geometria::Geometria::de_json(&format!(r#"{{"angulo": 15, "recorte": [0.5, 0.5, {cw}, {ch}]}}"#)).unwrap();
+    let img = png_bytes(&ed, &Default::default(), &g);
+    assert!(!img.layout().has_alpha(), "quedaron píxeles transparentes");
+    // Sin recortar, las esquinas sí quedan vacías.
+    let g = revela_core::geometria::Geometria::de_json(r#"{"angulo": 15}"#).unwrap();
+    assert!(png_bytes(&ed, &Default::default(), &g).layout().has_alpha());
 }
 
 #[test]
 fn garbage_is_an_error_not_a_crash() {
     let mut ed = Editor::new();
     assert!(ed.open("x.jpg", b"no es una foto", 24.0, 2048).is_err());
-    assert!(ed.export(ExportSettings::default(), &Default::default()).is_err());
+    assert!(ed.export(ExportSettings::default(), &Default::default(), &Default::default(), &|_| {}).is_err());
     assert!(ed.preview(100).is_err());
 }

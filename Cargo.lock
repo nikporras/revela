@@ -5834,7 +5834,9 @@ dependencies = [
  "photocraft-compose",
  "photocraft-doc",
  "photocraft-engine",
+ "photocraft-geom",
  "photocraft-io",
+ "serde",
  "serde_json",
  "wasm-bindgen",
 ]

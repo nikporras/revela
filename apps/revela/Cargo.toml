@@ -19,7 +19,9 @@ photocraft-io = { workspace = true }
 photocraft-codecs = { workspace = true, features = ["heif"] }
 photocraft-compose = { workspace = true }
 photocraft-doc = { workspace = true }
+photocraft-geom = { workspace = true }
 photocraft-algo = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
