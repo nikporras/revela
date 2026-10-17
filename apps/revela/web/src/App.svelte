@@ -693,7 +693,8 @@
       baseMini = (await pedir('previa', 160)).valor;
       mini?.cargar(baseMini.width, baseMini.height, baseMini.pixels);
       info = abierto.valor;
-      nombreBase = elegirNombreBase(archivo.name, info.takenAt);
+      const deCamara = entrada.hasAttribute('capture');
+      nombreBase = elegirNombreBase(archivo.name, info.takenAt, deCamara);
       // Foto nueva: receta e historial nuevos.
       receta = recetaVacia();
       historial = [recetaVacia()];
@@ -712,6 +713,8 @@
       if (info.originalWidth !== info.width) {
         aviso = `Foto reducida de ${mpx(info.originalWidth, info.originalHeight)} a ${mpx(info.width, info.height)} (límite ${limiteMp} MP).`;
       }
+      // El navegador entrega la foto de la cámara comprimida (≈ 1,4 MB a 12 MP en Chrome).
+      if (deCamara) aviso = [aviso, 'Para máxima calidad, toma la foto con la cámara del teléfono y ábrela desde Galería.'].filter(Boolean).join(' ');
       estado = 'lista';
     } catch (e) {
       error = `No se pudo abrir la foto: ${(e as Error).message}`;

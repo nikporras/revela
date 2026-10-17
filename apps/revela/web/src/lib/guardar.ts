@@ -115,10 +115,25 @@ async function nombreLibre(dir: DirHandle, nombre: string): Promise<string> {
  * Nombre base para la exportación. Android entrega fotos de la galería con su número interno
  * ("1000205213.jpg") e iOS a veces como "image.jpg": en esos casos se usa la fecha de captura,
  * como la nombra la cámara ("20261011_011847").
+ *
+ * Con el botón Cámara el nombre lo inventa el navegador (nunca dice nada): siempre la fecha de
+ * captura y, si la foto no trae EXIF, la hora actual (se acaba de tomar).
  */
-export function nombreBase(nombreArchivo: string, tomadaEl: string | null): string {
+export function nombreBase(nombreArchivo: string, tomadaEl: string | null, deCamara = false, ahora = new Date()): string {
+  if (deCamara) return tomadaEl ?? fechaNombre(ahora);
   const base = nombreArchivo.replace(/\.[^.]+$/, '').trim();
-  const sinSentido = base === '' || /^\d+$/.test(base) || /^(image|imagen|photo|foto|img)$/i.test(base);
+  const sinSentido =
+    base === '' ||
+    /^\d+$/.test(base) ||
+    /^(image|imagen|photo|foto|img)$/i.test(base) ||
+    // Identificadores aleatorios: "3f2a9c1e-…", "image-8d7f…", "a1b2c3d4e5f6a7b8".
+    /^([a-z]+[-_])?[0-9a-f]{8,}(-[0-9a-f]{4,})*$/i.test(base);
   if (sinSentido && tomadaEl) return tomadaEl;
   return base || 'foto';
+}
+
+/** `AAAAMMDD_HHMMSS` en hora local, como nombra las fotos la cámara de Samsung. */
+export function fechaNombre(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
