@@ -5825,6 +5825,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "revela-core"
+version = "0.1.0"
+dependencies = [
+ "js-sys",
+ "photocraft-codecs",
+ "photocraft-compose",
+ "photocraft-doc",
+ "photocraft-engine",
+ "photocraft-io",
+ "serde_json",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "rfd"
 version = "0.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
