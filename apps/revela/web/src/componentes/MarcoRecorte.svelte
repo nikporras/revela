@@ -97,6 +97,15 @@
     oncambio([(x0 + x1) / 2, (y0 + y1) / 2, x1 - x0, y1 - y0]);
   }
 
+  /** Un segundo dedo (zoom): se abandona la línea y se da por terminado el arrastre. */
+  export function cancelar() {
+    linea = null;
+    if (arrastre) {
+      arrastre = null;
+      onfin();
+    }
+  }
+
   function soltar() {
     if (linea) {
       const [x0, y0, x1, y1] = linea;

@@ -69,6 +69,13 @@ self.onmessage = async (e: MessageEvent<Peticion>) => {
         result = anguloLinea(x0, y0, x1, y1);
         break;
       }
+      case 'detalle': {
+        const [geometria, [x0, y0, x1, y1], ancho, alto, fila0, fila1] = args as Peticion<'detalle'>['args'];
+        const p = m.detalle(geometria, x0, y0, x1, y1, ancho, alto, fila0, fila1);
+        result = p;
+        transfer = [p.pixels.buffer];
+        break;
+      }
       case 'tamanoExport': {
         const [geometria] = args as Peticion<'tamanoExport'>['args'];
         result = Array.from(m.exportSize(geometria));

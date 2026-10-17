@@ -238,6 +238,65 @@ fn tiled_export_matches_the_preview_sampling_with_no_seams() {
 }
 
 #[test]
+fn the_zoom_detail_is_the_exported_photo_without_adjustments() {
+    let src = png(700, 520, false);
+    let mut ed = Editor::new();
+    ed.open("a.png", &src, 24.0, 512).unwrap();
+    for json in ["{}", r#"{"giro": 1, "espejoV": true, "angulo": 9, "recorte": [0.5, 0.5, 0.7, 0.6]}"#] {
+        let g = revela_core::geometria::Geometria::de_json(json).unwrap();
+        let exp = png_bytes(&ed, &Default::default(), &g);
+        let (w, h) = (exp.width() as usize, exp.height() as usize);
+        let exp = exp.convert(ChannelLayout::Rgba, SampleType::U8);
+        // Una ventana a escala 1:1 (pidiendo de más: se limita a la resolución de la foto).
+        let d = entera(&ed, &g, [0.25, 0.5, 0.75, 1.0], 10_000, 10_000);
+        let (x0, y0) = ((0.25 * w as f64) as usize, (0.5 * h as f64) as usize);
+        assert_eq!((d.width as usize, d.height as usize), ((0.75 * w as f64) as usize - x0, h - y0), "{json}");
+        let max = (0..d.height as usize)
+            .flat_map(|y| (0..d.width as usize).map(move |x| (x, y)))
+            .map(|(x, y)| {
+                let a = &d.pixels[(y * d.width as usize + x) * 4..][..4];
+                let b = &exp.data()[((y0 + y) * w + x0 + x) * 4..][..4];
+                a.iter().zip(b).map(|(p, q)| p.abs_diff(*q)).max().unwrap_or(0)
+            })
+            .max()
+            .unwrap_or(0);
+        assert!(max <= 1, "{json}: diferencia máxima {max}/255");
+        // Reducida, cabe en lo pedido.
+        let d = entera(&ed, &g, [0.0, 0.0, 1.0, 1.0], 100, 80);
+        assert_eq!((d.width, d.height), (100, 80));
+    }
+    assert!(ed.detalle(&Default::default(), [0.5, 0.5, 0.5, 1.0], 10, 10, 0..10).is_err());
+}
+
+/// La zona nítida entera, de una vez.
+fn entera(ed: &Editor, g: &revela_core::geometria::Geometria, v: [f64; 4], w: u32, h: u32) -> revela_core::Preview {
+    let f = ed.detalle(g, v, w, h, 0..u32::MAX).unwrap();
+    assert_eq!(f.fila0, 0);
+    revela_core::Preview { width: f.ancho, height: f.alto, pixels: f.pixels }
+}
+
+#[test]
+fn the_zoom_detail_in_strips_stitches_without_seams() {
+    let src = png(700, 520, false);
+    let mut ed = Editor::new();
+    ed.open("a.png", &src, 24.0, 512).unwrap();
+    let g = revela_core::geometria::Geometria::de_json(r#"{"angulo": -11, "espejoH": true}"#).unwrap();
+    let v = [0.1, 0.2, 0.8, 0.9];
+    let todo = entera(&ed, &g, v, 333, 301);
+    let mut cosido = Vec::new();
+    let mut fila = 0;
+    while fila < todo.height {
+        let f = ed.detalle(&g, v, 333, 301, fila..fila + 37).unwrap();
+        assert_eq!((f.ancho, f.alto, f.fila0), (todo.width, todo.height, fila));
+        cosido.extend_from_slice(&f.pixels);
+        fila += 37;
+    }
+    assert_eq!(cosido.len(), todo.pixels.len());
+    let max = cosido.iter().zip(&todo.pixels).map(|(a, b)| a.abs_diff(*b)).max().unwrap_or(0);
+    assert!(max <= 1, "costura: diferencia máxima {max}/255");
+}
+
+#[test]
 fn a_fitted_straightening_crop_has_no_empty_corners() {
     let src = png(400, 300, false);
     let mut ed = Editor::new();

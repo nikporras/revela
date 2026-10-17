@@ -106,6 +106,25 @@ locales; exportar 12 MP con el comando entero gasta 770 MB. Por eso:
 - La prueba de igualdad incluye 6 encuadres cruzados con 5 recetas (332 comparaciones, máx.
   1/255, sin píxeles de borde distintos).
 
+## Zoom
+
+- **Gestos** (`App.svelte`, matemática en `web/src/lib/zoom.ts`):
+  - Pellizco con dos dedos (zoom alrededor del punto medio, y arrastre a la vez).
+  - Arrastre con un dedo cuando hay zoom.
+  - Doble toque para alternar entre ajustar a pantalla y 100 % (un píxel de la foto por píxel físico de la pantalla). Si la foto es más pequeña que la pantalla, se acerca al doble.
+  - El máximo es el doble del 100 %.
+- **En Recortar** funciona igual:
+  - Las asas y la línea de enderezar mandan.
+  - Sin zoom, el dedo dentro del recorte lo mueve; con zoom, mueve la foto.
+  - Un segundo dedo cancela lo que hacía el primero.
+- **Mientras dura el gesto** la previa reducida solo se agranda con CSS, que es instantáneo.
+- **Zona nítida:** al soltar, si la previa se queda corta, el motor dibuja la zona visible a resolución completa:
+  - Usa `Editor::detalle`, que es la misma geometría y el mismo bilineal que la exportación, por bloques, sin ajustes y como mucho a la resolución de la pantalla.
+  - La GPU le pone los ajustes encima. Por eso mover un slider con zoom no vuelve a pedirla.
+  - Se pide **por franjas de 128 filas**, una petición cada vez. Si un slider se mueve mientras tanto, su petición pasa delante de la siguiente franja (espera como mucho una), la zona a medias se descarta y se vuelve a pedir al soltar el slider.
+  - Una prueba comprueba que coincide con la exportación (≤ 1/255).
+- **Sin WebGL2** hay zoom, pero sin zona nítida.
+
 ## Filtros
 
 Los presets de LightCraft (commit `f34c7a8a`) traducidos por `scripts/traducir_filtros.py`:

@@ -34,6 +34,14 @@ export interface Peticiones {
   previaGpu: { args: [ajustes: string, geometria: string, ancho: number, alto: number]; result: { params: ParametrosGpu; plano: PlanoGpu } };
   /** Ángulo que deja horizontal o vertical una línea (regla de "Enderezar capa" del motor). */
   anguloLinea: { args: [x0: number, y0: number, x1: number, y1: number]; result: number };
+  /**
+   * Las filas `fila0..fila1` de una ventana (fracciones) del encuadre a resolución completa, sin
+   * ajustes: el zoom nítido, por franjas. `ancho`×`alto` es el tamaño de la ventana entera.
+   */
+  detalle: {
+    args: [geometria: string, ventana: [number, number, number, number], ancho: number, alto: number, fila0: number, fila1: number];
+    result: { ancho: number; alto: number; fila0: number; pixels: Uint8ClampedArray };
+  };
   tamanoExport: { args: [geometria: string]; result: [number, number] };
   exportar: { args: [formato: FormatoExport, calidad: number, conservarUbicacion: boolean, ajustes: string, geometria: string]; result: Uint8Array };
   memoria: { args: []; result: number };
