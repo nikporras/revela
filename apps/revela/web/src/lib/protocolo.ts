@@ -18,13 +18,19 @@ export interface Previa {
   pixels: Uint8ClampedArray;
 }
 
+import type { ParametrosGpu } from './gpu';
+
 export type FormatoExport = 'jpg' | 'png';
 
 export interface Peticiones {
   iniciar: { args: []; result: { ms: number } };
   abrir: { args: [nombre: string, bytes: ArrayBuffer, maxMegapixeles: number, ladoPrevia: number]; result: InfoFoto };
   previa: { args: [ladoMax: number]; result: Previa };
-  exportar: { args: [formato: FormatoExport, calidad: number, conservarUbicacion: boolean]; result: Uint8Array };
+  /** La previa con los ajustes aplicados por el motor (sin WebGL2, y para la autoprueba). */
+  previaMotor: { args: [ladoMax: number, ajustes: string]; result: Previa };
+  /** Parámetros del shader para unos ajustes (JSON de Camera Raw). */
+  gpuParams: { args: [ajustes: string]; result: ParametrosGpu };
+  exportar: { args: [formato: FormatoExport, calidad: number, conservarUbicacion: boolean, ajustes: string]; result: Uint8Array };
   memoria: { args: []; result: number };
 }
 

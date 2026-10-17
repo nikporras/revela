@@ -1,5 +1,5 @@
 // Web Worker del motor: aquí corre el wasm de Revela, fuera del hilo de la interfaz.
-import init, { Revela, memoryBytes } from './wasm/revela_core.js';
+import init, { Revela, gpuParams, memoryBytes } from './wasm/revela_core.js';
 import type { Peticion, Respuesta } from './lib/protocolo';
 
 let motor: Revela | undefined;
@@ -43,9 +43,23 @@ self.onmessage = async (e: MessageEvent<Peticion>) => {
         transfer = [p.pixels.buffer];
         break;
       }
+      case 'previaMotor': {
+        const [lado, ajustes] = args as Peticion<'previaMotor'>['args'];
+        const p = m.developPreview(lado, ajustes);
+        result = p;
+        transfer = [p.pixels.buffer];
+        break;
+      }
+      case 'gpuParams': {
+        const [ajustes] = args as Peticion<'gpuParams'>['args'];
+        const p = gpuParams(ajustes);
+        result = p;
+        transfer = [p.luts.buffer];
+        break;
+      }
       case 'exportar': {
-        const [formato, calidad, conservar] = args as Peticion<'exportar'>['args'];
-        const bytes = m.export(formato, calidad, conservar);
+        const [formato, calidad, conservar, ajustes] = args as Peticion<'exportar'>['args'];
+        const bytes = m.export(formato, calidad, conservar, ajustes);
         result = bytes;
         transfer = [bytes.buffer];
         break;

@@ -1,8 +1,15 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { pedir } from './lib/motor';
+  import Sliders from './componentes/Sliders.svelte';
+  import Curvas from './componentes/Curvas.svelte';
+  import Filtros from './componentes/Filtros.svelte';
+  import { Motor, pedir, ultimaGana } from './lib/motor';
   import { carpetaRecordada, guardarEnCarpeta, nombreBase as elegirNombreBase, soportaCarpeta } from './lib/guardar';
-  import type { FormatoExport, InfoFoto } from './lib/protocolo';
+  import { Revelador, hayWebGL2, type ParametrosGpu } from './lib/gpu';
+  import { FILTROS, recetasDeFiltros, type Filtro } from './lib/filtros';
+  import { aCameraRaw, esVacia, recetaVacia, type Canal, type IdSlider, type Punto, type Receta } from './lib/receta';
+  import { probar, recetasDePrueba, TOLERANCIA, type MotorDePrueba } from './lib/autoprueba';
+  import type { FormatoExport, InfoFoto, Previa } from './lib/protocolo';
   import {
     LIMITES_MP,
     compartir as compartirArchivo,
@@ -16,6 +23,7 @@
   } from './lib/plataforma';
 
   type Estado = 'cargando' | 'vacio' | 'abriendo' | 'lista' | 'exportando';
+  type Pestana = 'filtros' | 'ajustes' | 'curvas';
 
   interface Diagnostico {
     cargaInicial?: number;
@@ -28,6 +36,10 @@
     memoria?: { abrir?: number; exportar?: number };
     compartir?: string;
     guardar?: string;
+    /** Tiempo por cambio de slider (desde que se mueve hasta que está dibujado), últimos 20. */
+    vivo?: number[];
+    gpu?: string;
+    autoprueba?: string;
   }
 
   let estado = $state<Estado>('cargando');
@@ -48,11 +60,167 @@
   let avisoHoja = $state('');
   const sePuedeCompartir = $derived(exportado ? puedeCompartir(exportado) : false);
 
-  let lienzo: HTMLCanvasElement | undefined = $state();
+  // --- Receta, historial y previa ---------------------------------------------------------
+
+  let receta = $state<Receta>(recetaVacia());
+  let historial = $state<Receta[]>([recetaVacia()]);
+  let posicion = $state(0);
+  let pestana = $state<Pestana>('ajustes');
+  let comparando = $state(false);
+  /** Curvas calculadas por el motor (para dibujarlas en el editor). */
+  let luts = $state<Float32Array | null>(null);
+  let claveFoto = $state(0);
+
+  let lienzoGpu: HTMLCanvasElement | undefined = $state();
+  let lienzo2d: HTMLCanvasElement | undefined = $state();
   let entradaGaleria: HTMLInputElement | undefined = $state();
   let entradaCamara: HTMLInputElement | undefined = $state();
 
+  /** WebGL2 disponible: previa en la GPU. Si no, la previa la calcula el motor (más lenta). */
+  let usarGpu = $state(hayWebGL2());
+  let revelador: Revelador | null = null;
+  let ultimosParams: ParametrosGpu | null = null;
+  /** Previa sin ajustes (para "mantener pulsado para comparar" sin GPU). */
+  let base: Previa | null = null;
+  /** Sin GPU la previa del motor se calcula más pequeña para que el slider responda. */
+  const LADO_CPU = 900;
+
+  const ajustesJson = () => JSON.stringify(aCameraRaw($state.snapshot(receta) as Receta, FILTROS));
+
+  let tCambio = 0;
+  function medirVivo() {
+    if (!tCambio) return;
+    const v = [...(diag.vivo ?? []), performance.now() - tCambio].slice(-20);
+    diag.vivo = v;
+    tCambio = 0;
+  }
+
+  const actualizarGpu = ultimaGana(
+    async (json: string) => (await pedir('gpuParams', json)).valor,
+    (p) => {
+      ultimosParams = p;
+      luts = p.luts;
+      if (!comparando) revelador?.dibujar(p);
+      medirVivo();
+    },
+    (e) => (error = `No se pudo aplicar el ajuste: ${e.message}`),
+  );
+
+  const actualizarCpu = ultimaGana(
+    async (json: string) => (await pedir('previaMotor', LADO_CPU, json)).valor,
+    (p) => {
+      if (!comparando) pintar2d(p);
+      medirVivo();
+    },
+    (e) => (error = `No se pudo aplicar el ajuste: ${e.message}`),
+  );
+
+  function aplicar() {
+    if (!info) return;
+    tCambio = performance.now();
+    const json = ajustesJson();
+    if (usarGpu) actualizarGpu(json);
+    else actualizarCpu(json);
+  }
+
+  function pintar2d(p: Previa) {
+    if (!lienzo2d) return;
+    lienzo2d.width = p.width;
+    lienzo2d.height = p.height;
+    lienzo2d.getContext('2d')?.putImageData(new ImageData(new Uint8ClampedArray(p.pixels), p.width, p.height), 0, 0);
+  }
+
+  /** Un paso de deshacer (al soltar un slider, elegir un filtro…). */
+  function confirmar() {
+    const actual = $state.snapshot(receta) as Receta;
+    if (JSON.stringify(actual) === JSON.stringify(historial[posicion])) return;
+    historial = [...historial.slice(0, posicion + 1), actual].slice(-100);
+    posicion = historial.length - 1;
+    exportado = null;
+  }
+
+  function irA(p: number) {
+    if (p < 0 || p >= historial.length) return;
+    posicion = p;
+    receta = structuredClone($state.snapshot(historial[p]) as Receta);
+    exportado = null;
+    aplicar();
+  }
+
+  function cambiarSlider(id: IdSlider, v: number) {
+    receta.sliders[id] = v;
+    aplicar();
+  }
+
+  function cambiarCurva(canal: Canal, puntos: Punto[]) {
+    receta.curvas[canal] = puntos;
+    aplicar();
+  }
+
+  function cambiarFiltro(f: { id: string; intensidad: number } | null) {
+    receta.filtro = f;
+    aplicar();
+  }
+
+  function empezarDeNuevo() {
+    receta = recetaVacia();
+    confirmar();
+    aplicar();
+  }
+
+  // Mantener pulsado para comparar con el original.
+  let temporizador: ReturnType<typeof setTimeout> | undefined;
+  function pulsar() {
+    if (!info) return;
+    clearTimeout(temporizador);
+    temporizador = setTimeout(() => {
+      comparando = true;
+      if (usarGpu) revelador?.dibujar(null);
+      else if (base) pintar2d(base);
+    }, 150);
+  }
+  function soltar() {
+    clearTimeout(temporizador);
+    if (!comparando) return;
+    comparando = false;
+    if (usarGpu) revelador?.dibujar(ultimosParams);
+    else aplicar();
+  }
+
+  // Miniaturas de los filtros: la foto pequeña con cada filtro, en un revelador aparte.
+  let mini: Revelador | null = null;
+  let baseMini = $state.raw<Previa | null>(null);
+  async function dibujarMiniatura(lienzo: HTMLCanvasElement, f: Filtro | null) {
+    if (!baseMini) return;
+    const json = JSON.stringify(f ? f.ajustes : {});
+    let px: Uint8Array | Uint8ClampedArray;
+    let w = baseMini.width;
+    let h = baseMini.height;
+    if (mini) {
+      mini.dibujar((await pedir('gpuParams', json)).valor);
+      px = mini.leer();
+    } else {
+      const p = (await pedir('previaMotor', 160, json)).valor;
+      ({ width: w, height: h, pixels: px } = p);
+    }
+    lienzo.width = w;
+    lienzo.height = h;
+    lienzo.getContext('2d')?.putImageData(new ImageData(new Uint8ClampedArray(px), w, h), 0, 0);
+  }
+
   onMount(async () => {
+    if (usarGpu && lienzoGpu) {
+      try {
+        revelador = new Revelador(lienzoGpu);
+        diag.gpu = revelador.descripcion();
+        mini = new Revelador(document.createElement('canvas'));
+      } catch (e) {
+        usarGpu = false;
+        diag.gpu = `sin GPU: ${(e as Error).message}`;
+      }
+    } else {
+      diag.gpu = 'sin WebGL2: la previa la calcula el motor';
+    }
     try {
       const r = await pedir('iniciar');
       diag.cargaInicial = performance.now();
@@ -81,17 +249,24 @@
       const tLeido = performance.now();
       const lado = ladoPrevia();
       const abierto = await pedir('abrir', archivo.name, bytes, limiteMp, lado);
-      const previa = await pedir('previa', lado);
-      dibujar(previa.valor);
+      const previa = await pedir('previa', usarGpu ? lado : LADO_CPU);
+      base = previa.valor;
+      if (usarGpu) revelador?.cargar(base.width, base.height, base.pixels);
+      baseMini = (await pedir('previa', 160)).valor;
+      mini?.cargar(baseMini.width, baseMini.height, baseMini.pixels);
       info = abierto.valor;
       nombreBase = elegirNombreBase(archivo.name, info.takenAt);
-      diag.abrir = {
-        leer: tLeido - t0,
-        motor: abierto.ms,
-        previa: previa.ms,
-        total: performance.now() - t0,
-      };
+      // Foto nueva: receta e historial nuevos.
+      receta = recetaVacia();
+      historial = [recetaVacia()];
+      posicion = 0;
+      claveFoto++;
+      ultimosParams = null;
+      if (usarGpu) revelador?.dibujar(null);
+      else pintar2d(base);
+      diag.abrir = { leer: tLeido - t0, motor: abierto.ms, previa: previa.ms, total: performance.now() - t0 };
       diag.memoria = { abrir: previa.memoria };
+      diag.vivo = [];
       if (info.originalWidth !== info.width) {
         aviso = `Foto reducida de ${mpx(info.originalWidth, info.originalHeight)} a ${mpx(info.width, info.height)} (límite ${limiteMp} MP).`;
       }
@@ -102,21 +277,13 @@
     }
   }
 
-  function dibujar(p: { width: number; height: number; pixels: Uint8ClampedArray }) {
-    if (!lienzo) return;
-    lienzo.width = p.width;
-    lienzo.height = p.height;
-    const ctx = lienzo.getContext('2d');
-    ctx?.putImageData(new ImageData(new Uint8ClampedArray(p.pixels), p.width, p.height), 0, 0);
-  }
-
   async function exportar() {
     error = '';
     estado = 'exportando';
     exportado = null;
     avisoHoja = '';
     try {
-      const r = await pedir('exportar', formato, calidad, conservarUbicacion);
+      const r = await pedir('exportar', formato, calidad, conservarUbicacion, ajustesJson());
       const tipo = formato === 'jpg' ? 'image/jpeg' : 'image/png';
       exportado = new File([r.valor as Uint8Array<ArrayBuffer>], `${nombreBase}-revela.${formato}`, { type: tipo });
       diag.exportar = { ms: r.ms, bytes: r.valor.byteLength, formato, calidad };
@@ -162,6 +329,38 @@
     }
   }
 
+  // --- Autoprueba de la GPU en el propio teléfono ------------------------------------------
+
+  let probando = $state('');
+  async function probarGpu() {
+    if (!usarGpu) {
+      diag.autoprueba = 'sin WebGL2: la previa y la exportación usan el motor (son iguales por construcción)';
+      return;
+    }
+    // Un motor aparte, para no tocar la foto que se está editando.
+    const m = new Motor('motor-autoprueba');
+    const motorPrueba: MotorDePrueba = {
+      abrir: async (nombre, bytes) => void (await m.pedir('abrir', nombre, bytes.slice().buffer, 100, 512)),
+      previa: async (lado) => (await m.pedir('previa', lado)).valor,
+      previaMotor: async (lado, json) => (await m.pedir('previaMotor', lado, json)).valor,
+      gpuParams: async (json) => (await m.pedir('gpuParams', json)).valor,
+    };
+    try {
+      probando = 'Preparando…';
+      const rev = new Revelador(document.createElement('canvas'));
+      const inf = await probar(motorPrueba, rev, recetasDePrueba(recetasDeFiltros()), (t) => (probando = t));
+      diag.autoprueba =
+        `${inf.ok ? '✓ igual' : '✗ DISTINTA'}: máx ${inf.peor.max}/255 (límite ${TOLERANCIA}) en ${inf.resultados.length} comparaciones` +
+        `${inf.bandas ? ' · ✗ BANDAS en degradados' : ' · sin bandas'} · ${ms(inf.ms)}` +
+        (inf.ok ? '' : ` · peor: ${inf.peor.imagen}, ${inf.peor.receta}`);
+    } catch (e) {
+      diag.autoprueba = `error: ${(e as Error).message}`;
+    } finally {
+      probando = '';
+      m.reiniciar();
+    }
+  }
+
   function cambiarLimite(v: number) {
     limiteMp = v;
     guardarLimiteMp(v);
@@ -171,30 +370,29 @@
     return `${((w * h) / 1e6).toFixed(1)} MP`;
   }
 
+  function mediana(v: number[]): number {
+    const s = [...v].sort((a, b) => a - b);
+    return s[Math.floor(s.length / 2)] ?? 0;
+  }
+
   function textoDiagnostico(): string {
     const d = diag;
     const instalada = matchMedia('(display-mode: standalone)').matches;
     const l: string[] = [`Revela ${__REVELA_VERSION__}${instalada ? ' (instalada)' : ' (navegador)'}`, navigator.userAgent];
     if (d.cargaInicial != null)
       l.push(`Carga inicial: ${ms(d.cargaInicial)} (wasm ${ms(d.initWasm ?? 0)}, ${d.desdeCache ? 'desde caché' : 'desde red'})`);
+    if (d.gpu) l.push(`GPU: ${d.gpu}`);
     if (d.archivo) l.push(`Archivo (${d.archivo.origen}): ${d.archivo.nombre} · ${d.archivo.tipo} · ${mb(d.archivo.bytes)}`);
-    if (info)
-      l.push(
-        `Foto: ${info.format} · original ${info.originalWidth}×${info.originalHeight} · trabajo ${info.width}×${info.height}`,
-      );
-    if (d.abrir)
-      l.push(
-        `Abrir: ${ms(d.abrir.total)} (leer ${ms(d.abrir.leer)}, motor ${ms(d.abrir.motor)}, previa ${ms(d.abrir.previa)})`,
-      );
-    if (d.exportar)
-      l.push(`Exportar ${d.exportar.formato.toUpperCase()} q${d.exportar.calidad}: ${ms(d.exportar.ms)} · ${mb(d.exportar.bytes)}`);
+    if (info) l.push(`Foto: ${info.format} · original ${info.originalWidth}×${info.originalHeight} · trabajo ${info.width}×${info.height}`);
+    if (d.abrir) l.push(`Abrir: ${ms(d.abrir.total)} (leer ${ms(d.abrir.leer)}, motor ${ms(d.abrir.motor)}, previa ${ms(d.abrir.previa)})`);
+    if (d.vivo?.length)
+      l.push(`Ajuste en vivo (${usarGpu ? 'GPU' : 'motor'}): mediana ${ms(mediana(d.vivo))}, máx ${ms(Math.max(...d.vivo))} (${d.vivo.length} cambios)`);
+    if (d.exportar) l.push(`Exportar ${d.exportar.formato.toUpperCase()} q${d.exportar.calidad}: ${ms(d.exportar.ms)} · ${mb(d.exportar.bytes)}`);
     if (d.compartir) l.push(`Compartir: ${d.compartir}`);
     l.push(`Guardar en carpeta: ${soportaCarpeta ? (d.guardar ?? 'disponible') : 'no disponible (va a Descargas)'}`);
     if (d.memoria?.abrir)
-      l.push(
-        `Memoria del motor (pico): al abrir ${mb(d.memoria.abrir)}` +
-          (d.memoria.exportar ? ` · al exportar ${mb(d.memoria.exportar)}` : ''),
-      );
+      l.push(`Memoria del motor (pico): al abrir ${mb(d.memoria.abrir)}` + (d.memoria.exportar ? ` · al exportar ${mb(d.memoria.exportar)}` : ''));
+    if (d.autoprueba) l.push(`Prueba GPU = exportación: ${d.autoprueba}`);
     if (info?.warnings.length) l.push(`Avisos: ${info.warnings.join(' | ')}`);
     return l.join('\n');
   }
@@ -209,20 +407,40 @@
   }
 
   const ocupado = $derived(estado === 'cargando' || estado === 'abriendo' || estado === 'exportando');
+  const editada = $derived(!esVacia(receta));
 </script>
 
 <main>
   <header>
     <span class="marca">Revela</span>
-    <button class="icono" aria-label="Información y diagnóstico" onclick={() => (hojaInfo = true)}>
-      <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-        <circle cx="12" cy="12" r="9.5" /><path d="M12 11v6" /><circle cx="12" cy="7.5" r="0.6" fill="currentColor" />
-      </svg>
-    </button>
+    <div class="herramientas">
+      {#if info}
+        <button class="icono" aria-label="Deshacer" disabled={posicion === 0} onclick={() => irA(posicion - 1)}>
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5" /><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" /></svg>
+        </button>
+        <button class="icono" aria-label="Rehacer" disabled={posicion >= historial.length - 1} onclick={() => irA(posicion + 1)}>
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5" /><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13" /></svg>
+        </button>
+      {/if}
+      <button class="icono" aria-label="Información y diagnóstico" onclick={() => (hojaInfo = true)}>
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <circle cx="12" cy="12" r="9.5" /><path d="M12 11v6" /><circle cx="12" cy="7.5" r="0.6" fill="currentColor" />
+        </svg>
+      </button>
+    </div>
   </header>
 
-  <section class="foto">
-    <canvas bind:this={lienzo} class:oculto={!info}></canvas>
+  <section
+    class="foto"
+    aria-label="Foto (mantén pulsado para ver el original)"
+    onpointerdown={pulsar}
+    onpointerup={soltar}
+    onpointercancel={soltar}
+    onpointerleave={soltar}
+    oncontextmenu={(e) => e.preventDefault()}
+  >
+    <canvas bind:this={lienzoGpu} class:oculto={!info || !usarGpu}></canvas>
+    <canvas bind:this={lienzo2d} class:oculto={!info || usarGpu}></canvas>
     {#if !info}
       <div class="vacio">
         {#if estado === 'cargando'}
@@ -233,6 +451,7 @@
         {/if}
       </div>
     {/if}
+    {#if comparando}<div class="etiqueta">Original</div>{/if}
     {#if ocupado && estado !== 'cargando'}
       <div class="cargando">{estado === 'abriendo' ? 'Abriendo…' : 'Exportando…'}</div>
     {/if}
@@ -240,6 +459,26 @@
 
   {#if error}<p class="mensaje error" role="alert">{error}</p>{/if}
   {#if aviso}<p class="mensaje" role="status">{aviso}</p>{/if}
+
+  {#if info}
+    <section class="panel">
+      <div class="pestanas" role="tablist">
+        {#each [['filtros', 'Filtros'], ['ajustes', 'Ajustes'], ['curvas', 'Curvas']] as [id, nombre] (id)}
+          <button role="tab" aria-selected={pestana === id} class:activa={pestana === id} onclick={() => (pestana = id as Pestana)}>{nombre}</button>
+        {/each}
+        <button class="reiniciar" disabled={!editada} onclick={empezarDeNuevo}>Quitar todo</button>
+      </div>
+      <div class="contenido">
+        {#if pestana === 'ajustes'}
+          <Sliders valores={receta.sliders} oncambio={cambiarSlider} onfin={confirmar} />
+        {:else if pestana === 'curvas'}
+          <Curvas curvas={receta.curvas} {luts} oncambio={cambiarCurva} onfin={confirmar} />
+        {:else}
+          <Filtros filtro={receta.filtro} {claveFoto} dibujarMiniatura={baseMini ? dibujarMiniatura : null} oncambio={cambiarFiltro} onfin={confirmar} />
+        {/if}
+      </div>
+    </section>
+  {/if}
 
   <nav class="barra">
     <button class="boton" disabled={ocupado} onclick={() => entradaGaleria?.click()}>Galería</button>
@@ -273,7 +512,7 @@
       <input type="checkbox" bind:checked={conservarUbicacion} onchange={() => (exportado = null)} />
     </label>
     {#if info}
-      <p class="sub">{info.width}×{info.height} px · sin miniatura EXIF{conservarUbicacion ? '' : ' · sin ubicación'}</p>
+      <p class="sub">{info.width}×{info.height} px · {editada ? 'con tus ajustes' : 'sin ajustes'} · sin miniatura EXIF{conservarUbicacion ? '' : ' · sin ubicación'}</p>
     {/if}
     {#if exportado}
       <p class="sub">Listo: {exportado.name} · {mb(exportado.size)}</p>
@@ -311,6 +550,7 @@
     <p>Editor de fotos gratuito. Todo ocurre en tu teléfono.</p>
     <p class="credito">
       Basado en <a href="https://github.com/storytold/photocraft" target="_blank" rel="noopener">PhotoCraft</a> (código abierto, MIT o Apache 2.0).
+      Filtros adaptados de los presets de <a href="https://github.com/storytold/lightcraft" target="_blank" rel="noopener">LightCraft</a> (código abierto, MIT o Apache 2.0).
       <a href="https://github.com/nikporras/revela" target="_blank" rel="noopener">Código de Revela</a>.
     </p>
     <label class="fila">
@@ -321,7 +561,9 @@
     </label>
     <h3>Diagnóstico</h3>
     <pre class="diag">{textoDiagnostico()}</pre>
+    {#if probando}<p class="sub">Probando: {probando}</p>{/if}
     <div class="acciones">
+      <button class="boton" disabled={!!probando} onclick={probarGpu}>Probar GPU</button>
       <button class="boton" onclick={copiarDiagnostico}>Copiar diagnóstico</button>
     </div>
   </section>
@@ -338,7 +580,10 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 8px 16px;
+    padding: 4px 8px 4px 16px;
+  }
+  .herramientas {
+    display: flex;
   }
   .marca {
     font-weight: 700;
@@ -357,13 +602,17 @@
     position: relative;
     display: grid;
     place-items: center;
-    padding: 8px 16px;
+    padding: 4px 16px;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
   }
   canvas {
     max-width: 100%;
     max-height: 100%;
     border-radius: 6px;
-    image-rendering: auto;
+    grid-area: 1 / 1;
   }
   .oculto {
     display: none;
@@ -371,6 +620,17 @@
   .vacio {
     text-align: center;
     color: var(--texto-2);
+    grid-area: 1 / 1;
+  }
+  .etiqueta {
+    position: absolute;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #000a;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 13px;
   }
   .sub {
     color: var(--texto-2);
@@ -392,10 +652,40 @@
   .error {
     color: var(--error);
   }
+  .panel {
+    background: var(--panel);
+    border-radius: 18px 18px 0 0;
+    padding-top: 6px;
+  }
+  .pestanas {
+    display: flex;
+    gap: 4px;
+    padding: 0 12px 4px;
+  }
+  .pestanas button {
+    min-height: 40px;
+    padding: 0 12px;
+    color: var(--texto-2);
+    font-weight: 600;
+    border-bottom: 2px solid transparent;
+  }
+  .pestanas .activa {
+    color: var(--texto);
+    border-bottom-color: var(--acento);
+  }
+  .reiniciar {
+    margin-left: auto;
+    font-weight: 400 !important;
+    font-size: 14px;
+  }
+  .contenido {
+    min-height: 120px;
+  }
   .barra {
     display: flex;
     gap: 8px;
     padding: 8px 16px 12px;
+    background: var(--panel);
   }
   .boton {
     flex: 1;
