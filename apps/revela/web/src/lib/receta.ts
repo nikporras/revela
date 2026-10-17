@@ -3,6 +3,7 @@
 // Camera Raw de PhotoCraft que usan la previa (GPU) y la exportación (motor).
 import TONO from './tono.json';
 import type { Filtro } from './filtros';
+import { esGeometriaVacia, geometriaVacia, type Geometria } from './recorte';
 
 export type IdSlider = 'exposicion' | 'contraste' | 'luces' | 'sombras' | 'temperatura' | 'tinte' | 'saturacion' | 'vibrancia';
 
@@ -35,6 +36,7 @@ export interface Receta {
   /** Curvas de puntos (0..255). Vacía o de dos puntos en la diagonal = sin curva. */
   curvas: Record<Canal, Punto[]>;
   filtro: { id: string; intensidad: number } | null;
+  geometria: Geometria;
 }
 
 export const DIAGONAL: Punto[] = [
@@ -47,6 +49,7 @@ export function recetaVacia(): Receta {
     sliders: { exposicion: 0, contraste: 0, luces: 0, sombras: 0, temperatura: 0, tinte: 0, saturacion: 0, vibrancia: 0 },
     curvas: { master: DIAGONAL, red: DIAGONAL, green: DIAGONAL, blue: DIAGONAL },
     filtro: null,
+    geometria: geometriaVacia(),
   };
 }
 
@@ -55,7 +58,7 @@ export function esCurvaNeutra(c: Punto[]): boolean {
 }
 
 export function esVacia(r: Receta): boolean {
-  return Object.values(r.sliders).every((v) => v === 0) && Object.values(r.curvas).every(esCurvaNeutra) && !r.filtro;
+  return Object.values(r.sliders).every((v) => v === 0) && Object.values(r.curvas).every(esCurvaNeutra) && !r.filtro && esGeometriaVacia(r.geometria);
 }
 
 type Ajustes = Record<string, unknown>;

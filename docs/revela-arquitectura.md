@@ -1,6 +1,6 @@
 # Revela: arquitectura
 
-> Última actualización: 2026-10-17 (Fase 4: ajustes en vivo, curvas y filtros).
+> Última actualización: 2026-10-17 (Fase 4: ajustes, curvas, filtros y recorte).
 
 Revela es una PWA móvil que usa el motor de PhotoCraft compilado a WebAssembly, con una
 interfaz nueva en Svelte. Todo se procesa en el dispositivo.
@@ -12,6 +12,7 @@ apps/revela/
   Cargo.toml, src/      revela-core: puente Rust → wasm (wasm-bindgen). Sin egui ni GPU.
     lib.rs              Editor: abrir, vista previa, exportar (Rust normal, con pruebas)
     ajustes.rs          ajustes por píxel (Camera Raw de PhotoCraft) y parámetros del shader
+    geometria.rs        girar, voltear, enderezar y recortar: una afín + bilineal
     metadata.rs         limpieza de EXIF al exportar (GPS, miniatura) y fecha de captura
     wasm.rs             la API que ve JavaScript
   tests/                pruebas de punta a punta y medición de memoria
@@ -21,10 +22,11 @@ apps/revela/
     src/worker.ts       Web Worker donde vive el motor
     src/lib/motor.ts    cliente del worker (pedir(op, ...args) → promesa)
     src/lib/gpu.ts      previa en la GPU: shader WebGL2 (highp) de los ajustes
-    src/lib/receta.ts   la receta (sliders, curvas, filtro) → ajustes de Camera Raw
+    src/lib/receta.ts   la receta (sliders, curvas, filtro, geometría) → ajustes de Camera Raw
+    src/lib/recorte.ts  rectángulo de recorte: proporciones, sin esquinas vacías, girar/voltear
     src/lib/filtros.*   filtros (presets de LightCraft traducidos)
     src/lib/autoprueba.ts  prueba GPU = motor (CI y ⓘ › Probar GPU)
-    src/componentes/    Sliders, Curvas, Filtros
+    src/componentes/    Sliders, Curvas, Filtros, PanelRecorte, MarcoRecorte
     src/App.svelte      la pantalla
     pruebas/igualdad.*  prueba de igualdad en Chromium headless (bloquea el despliegue)
 .github/workflows/revela-pages.yml   pruebas, build y despliegue en GitHub Pages
@@ -79,6 +81,30 @@ locales; exportar 12 MP con el comando entero gasta 770 MB. Por eso:
 - **Receta**: sliders + curvas + filtro con intensidad (`receta.ts`). El filtro se escala por su
   intensidad y los sliders se suman encima; las curvas del usuario mandan. Deshacer/rehacer
   guarda la receta entera (100 pasos).
+
+## Recortar, enderezar, girar y voltear
+
+- **Una sola afín** (`geometria.rs`, `Plano`): cada píxel de salida → un punto de la foto de
+  origen. Orden: giros de 90°, volteos, enderezado (±45°, alrededor del centro) y recorte
+  `[cx, cy, ancho, alto]` en fracciones del marco girado (igual a cualquier resolución).
+- **El mismo muestreo bilineal en `f32`** en el shader y en el núcleo (centros de píxel en
+  `i + ½`, vecinos sujetos al borde, fuera de la foto transparente). La matriz la calcula el
+  núcleo y la GPU la usa tal cual.
+- **Exportación por bloques de 256×256**: cada bloque pide al motor solo su zona de la foto
+  (`compose::render` de la huella) y la remuestrea y revela. No se usa `image.crop` con ángulo
+  porque gira la foto entera (mucha memoria a 12 MP). Girar 90° y voltear dan exactamente lo
+  mismo que los comandos del motor (prueba `quarter_turns_and_flips_match...`), y la exportación
+  por bloques coincide con la previa a la misma resolución (sin costuras).
+- **Sin esquinas vacías** (`recorte.ts`): el recorte siempre cabe en la foto enderezada. Al
+  enderezar o cambiar la proporción, si el usuario no movió el recorte, se usa el rectángulo
+  máximo con esa proporción; si lo movió, solo se encoge lo necesario. Mover y redimensionar se
+  frenan en el borde (búsqueda binaria hacia el último recorte válido).
+- **Enderezar con una línea**: el motor no detecta el horizonte solo; `straightenLayer` usa la
+  regla del usuario. Revela pide trazar una línea y usa la misma regla del motor
+  (`analysis_cmds::straighten_angle`). Un enderezado automático (detección de líneas) queda
+  para más adelante.
+- La prueba de igualdad incluye 6 encuadres cruzados con 5 recetas (332 comparaciones, máx.
+  1/255, sin píxeles de borde distintos).
 
 ## Filtros
 

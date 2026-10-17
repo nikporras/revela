@@ -1,6 +1,6 @@
 // Página de prueba (no se despliega): compara la previa de la GPU con el motor.
 // La abre `igualdad.mjs` en Chromium headless; deja el informe en `window.__igualdad`.
-import init, { Revela, gpuParams } from '../src/wasm/revela_core.js';
+import init, { Revela, gpuParams, plano } from '../src/wasm/revela_core.js';
 import { Revelador } from '../src/lib/gpu';
 import { probar, recetasDePrueba, type MotorDePrueba } from '../src/lib/autoprueba';
 import { recetasDeFiltros } from '../src/lib/filtros';
@@ -13,8 +13,8 @@ const estado = document.getElementById('estado')!;
     const motor: MotorDePrueba = {
       abrir: async (nombre, bytes) => void r.open(nombre, bytes, 100, 512),
       previa: async (lado) => r.preview(lado),
-      previaMotor: async (lado, json) => r.developPreview(lado, json),
-      gpuParams: async (json) => gpuParams(json),
+      previaMotor: async (lado, json, geo) => r.developPreview(lado, json, geo),
+      previaGpu: async (json, geo, w, h) => ({ params: gpuParams(json), plano: plano(geo, w, h) }),
     };
     const rev = new Revelador(document.getElementById('gpu') as HTMLCanvasElement);
     const informe = await probar(motor, rev, recetasDePrueba(recetasDeFiltros()), (t) => (estado.textContent = t));

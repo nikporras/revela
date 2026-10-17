@@ -3,9 +3,27 @@
   import Sliders from './componentes/Sliders.svelte';
   import Curvas from './componentes/Curvas.svelte';
   import Filtros from './componentes/Filtros.svelte';
-  import { Motor, pedir, ultimaGana } from './lib/motor';
+  import PanelRecorte from './componentes/PanelRecorte.svelte';
+  import MarcoRecorte from './componentes/MarcoRecorte.svelte';
+  import {
+    COMPLETO,
+    ANGULO_MAX,
+    aspecto,
+    aspectoNormal,
+    encajar,
+    geometriaJson,
+    geometriaVacia,
+    girar,
+    marco,
+    reencuadrar,
+    voltearH,
+    voltearV,
+    type Proporcion,
+    type Rect,
+  } from './lib/recorte';
+  import { Motor, motor, pedir, ultimaGana } from './lib/motor';
   import { carpetaRecordada, guardarEnCarpeta, nombreBase as elegirNombreBase, soportaCarpeta } from './lib/guardar';
-  import { Revelador, hayWebGL2, type ParametrosGpu } from './lib/gpu';
+  import { Revelador, hayWebGL2, type ParametrosGpu, type PlanoGpu } from './lib/gpu';
   import { FILTROS, recetasDeFiltros, type Filtro } from './lib/filtros';
   import { aCameraRaw, esVacia, recetaVacia, type Canal, type IdSlider, type Punto, type Receta } from './lib/receta';
   import { probar, recetasDePrueba, TOLERANCIA, type MotorDePrueba } from './lib/autoprueba';
@@ -23,7 +41,7 @@
   } from './lib/plataforma';
 
   type Estado = 'cargando' | 'vacio' | 'abriendo' | 'lista' | 'exportando';
-  type Pestana = 'filtros' | 'ajustes' | 'curvas';
+  type Pestana = 'recortar' | 'filtros' | 'ajustes' | 'curvas';
 
   interface Diagnostico {
     cargaInicial?: number;
@@ -56,6 +74,20 @@
   let conservarUbicacion = $state(false);
   let limiteMp = $state(leerLimiteMp());
   let exportado = $state<File | null>(null);
+  /** Avance de la exportación (0..1). */
+  let progreso = $state(0);
+  /** Tamaño de la foto exportada con el encuadre actual. */
+  let tamExport = $state<[number, number] | null>(null);
+
+  async function abrirExportar() {
+    hojaExportar = true;
+    try {
+      tamExport = (await pedir('tamanoExport', geometriaJson($state.snapshot(receta.geometria)))).valor;
+    } catch {
+      tamExport = null;
+    }
+  }
+
   /** Resultado de Compartir/Guardar, visible dentro de la hoja de exportar. */
   let avisoHoja = $state('');
   const sePuedeCompartir = $derived(exportado ? puedeCompartir(exportado) : false);
@@ -80,6 +112,7 @@
   let usarGpu = $state(hayWebGL2());
   let revelador: Revelador | null = null;
   let ultimosParams: ParametrosGpu | null = null;
+  let ultimoPlano: PlanoGpu | null = null;
   /** Previa sin ajustes (para "mantener pulsado para comparar" sin GPU). */
   let base: Previa | null = null;
   /** Sin GPU la previa del motor se calcula más pequeña para que el slider responda. */
@@ -96,31 +129,128 @@
   }
 
   const actualizarGpu = ultimaGana(
-    async (json: string) => (await pedir('gpuParams', json)).valor,
-    (p) => {
-      ultimosParams = p;
-      luts = p.luts;
-      if (!comparando) revelador?.dibujar(p);
+    async (json: string, geo: string) => (await pedir('previaGpu', json, geo, revelador?.ancho ?? 1, revelador?.alto ?? 1)).valor,
+    ({ params, plano }) => {
+      ultimosParams = params;
+      ultimoPlano = plano;
+      luts = params.luts;
+      if (!comparando) revelador?.dibujar(params, plano);
       medirVivo();
+      medirCaja();
     },
     (e) => (error = `No se pudo aplicar el ajuste: ${e.message}`),
   );
 
   const actualizarCpu = ultimaGana(
-    async (json: string) => (await pedir('previaMotor', LADO_CPU, json)).valor,
+    async (json: string, geo: string) => (await pedir('previaMotor', LADO_CPU, json, geo)).valor,
     (p) => {
       if (!comparando) pintar2d(p);
       medirVivo();
+      medirCaja();
     },
     (e) => (error = `No se pudo aplicar el ajuste: ${e.message}`),
   );
+
+  /** Encuadre de la previa: mientras se recorta se ve el marco entero (con el recorte encima). */
+  const geometriaPrevia = () => geometriaJson($state.snapshot(receta.geometria), pestana === 'recortar');
 
   function aplicar() {
     if (!info) return;
     tCambio = performance.now();
     const json = ajustesJson();
-    if (usarGpu) actualizarGpu(json);
-    else actualizarCpu(json);
+    if (usarGpu) actualizarGpu(json, geometriaPrevia());
+    else actualizarCpu(json, geometriaPrevia());
+  }
+
+  // --- Recortar, enderezar, girar y voltear ------------------------------------------------
+
+  let modoLinea = $state(false);
+  let seccionFoto: HTMLElement | undefined = $state();
+  /** Dónde está dibujada la foto dentro de su sección (para poner el marco de recorte encima). */
+  let caja = $state({ x: 0, y: 0, w: 0, h: 0 });
+
+  function medirCaja() {
+    const l = usarGpu ? lienzoGpu : lienzo2d;
+    if (!l || !seccionFoto) return;
+    const a = l.getBoundingClientRect();
+    const b = seccionFoto.getBoundingClientRect();
+    caja = { x: a.left - b.left, y: a.top - b.top, w: a.width, h: a.height };
+  }
+
+  onMount(() => {
+    const ro = new ResizeObserver(() => medirCaja());
+    if (seccionFoto) ro.observe(seccionFoto);
+    return () => ro.disconnect();
+  });
+
+  /** Tamaño del marco (la foto girada) a resolución de trabajo. */
+  function tamMarco(): [number, number] {
+    return info ? marco(receta.geometria, info.width, info.height) : [1, 1];
+  }
+
+  function aspectoFijo(): number | null {
+    const [fw, fh] = tamMarco();
+    const a = aspecto(receta.geometria.proporcion, fw, fh);
+    return a === null ? null : aspectoNormal(a, fw, fh);
+  }
+
+  function reencajar() {
+    const [fw, fh] = tamMarco();
+    receta.geometria.recorte = reencuadrar($state.snapshot(receta.geometria), fw, fh);
+  }
+
+  function cambiarProporcion(p: Proporcion) {
+    receta.geometria.proporcion = p;
+    receta.geometria.manual = false;
+    reencajar();
+    confirmar();
+  }
+
+  function cambiarAngulo(a: number) {
+    receta.geometria.angulo = Math.max(-ANGULO_MAX, Math.min(ANGULO_MAX, a));
+    reencajar();
+    aplicar();
+  }
+
+  function transformar(f: (g: typeof receta.geometria) => typeof receta.geometria) {
+    receta.geometria = f($state.snapshot(receta.geometria));
+    reencajar();
+    aplicar();
+    confirmar();
+  }
+
+  function cambiarRecorte(deseado: Rect) {
+    const [fw, fh] = tamMarco();
+    const g = receta.geometria;
+    receta.geometria.recorte = encajar(deseado, $state.snapshot(g.recorte) ?? COMPLETO, g.angulo, fw, fh);
+    receta.geometria.manual = true;
+  }
+
+  async function enderezarConLinea(x0: number, y0: number, x1: number, y1: number) {
+    modoLinea = false;
+    const [fw, fh] = tamMarco();
+    try {
+      const d = (await pedir('anguloLinea', x0 * fw, y0 * fh, x1 * fw, y1 * fh)).valor;
+      cambiarAngulo(receta.geometria.angulo + d);
+      confirmar();
+    } catch (e) {
+      error = `No se pudo enderezar: ${(e as Error).message}`;
+    }
+  }
+
+  function restablecerGeometria() {
+    receta.geometria = geometriaVacia();
+    modoLinea = false;
+    aplicar();
+    confirmar();
+  }
+
+  function cambiarPestana(p: Pestana) {
+    const antes = pestana;
+    pestana = p;
+    modoLinea = false;
+    // Entrar o salir de Recortar cambia lo que se dibuja (marco entero / recortado).
+    if ((antes === 'recortar') !== (p === 'recortar')) aplicar();
   }
 
   function pintar2d(p: Previa) {
@@ -171,11 +301,12 @@
   // Mantener pulsado para comparar con el original.
   let temporizador: ReturnType<typeof setTimeout> | undefined;
   function pulsar() {
-    if (!info) return;
+    // Mientras se recorta, el dedo mueve el recorte: no se compara.
+    if (!info || pestana === 'recortar') return;
     clearTimeout(temporizador);
     temporizador = setTimeout(() => {
       comparando = true;
-      if (usarGpu) revelador?.dibujar(null);
+      if (usarGpu) revelador?.dibujar(null, ultimoPlano);
       else if (base) pintar2d(base);
     }, 150);
   }
@@ -183,7 +314,7 @@
     clearTimeout(temporizador);
     if (!comparando) return;
     comparando = false;
-    if (usarGpu) revelador?.dibujar(ultimosParams);
+    if (usarGpu) revelador?.dibujar(ultimosParams, ultimoPlano);
     else aplicar();
   }
 
@@ -200,7 +331,7 @@
       mini.dibujar((await pedir('gpuParams', json)).valor);
       px = mini.leer();
     } else {
-      const p = (await pedir('previaMotor', 160, json)).valor;
+      const p = (await pedir('previaMotor', 160, json, '{}')).valor;
       ({ width: w, height: h, pixels: px } = p);
     }
     lienzo.width = w;
@@ -262,6 +393,8 @@
       posicion = 0;
       claveFoto++;
       ultimosParams = null;
+      ultimoPlano = null;
+      modoLinea = false;
       if (usarGpu) revelador?.dibujar(null);
       else pintar2d(base);
       diag.abrir = { leer: tLeido - t0, motor: abierto.ms, previa: previa.ms, total: performance.now() - t0 };
@@ -283,7 +416,9 @@
     exportado = null;
     avisoHoja = '';
     try {
-      const r = await pedir('exportar', formato, calidad, conservarUbicacion, ajustesJson());
+      progreso = 0;
+      const geo = geometriaJson($state.snapshot(receta.geometria));
+      const r = await motor.pedirConProgreso('exportar', (f) => (progreso = f), formato, calidad, conservarUbicacion, ajustesJson(), geo);
       const tipo = formato === 'jpg' ? 'image/jpeg' : 'image/png';
       exportado = new File([r.valor as Uint8Array<ArrayBuffer>], `${nombreBase}-revela.${formato}`, { type: tipo });
       diag.exportar = { ms: r.ms, bytes: r.valor.byteLength, formato, calidad };
@@ -342,8 +477,8 @@
     const motorPrueba: MotorDePrueba = {
       abrir: async (nombre, bytes) => void (await m.pedir('abrir', nombre, bytes.slice().buffer, 100, 512)),
       previa: async (lado) => (await m.pedir('previa', lado)).valor,
-      previaMotor: async (lado, json) => (await m.pedir('previaMotor', lado, json)).valor,
-      gpuParams: async (json) => (await m.pedir('gpuParams', json)).valor,
+      previaMotor: async (lado, json, geo) => (await m.pedir('previaMotor', lado, json, geo)).valor,
+      previaGpu: async (json, geo, w, h) => (await m.pedir('previaGpu', json, geo, w, h)).valor,
     };
     try {
       probando = 'Preparando…';
@@ -418,6 +553,9 @@
         <button class="icono" aria-label="Deshacer" disabled={posicion === 0} onclick={() => irA(posicion - 1)}>
           <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5" /><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" /></svg>
         </button>
+        <button class="icono" aria-label="Quitar todos los cambios" title="Quitar todos los cambios" disabled={!editada} onclick={empezarDeNuevo}>
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16" /><path d="M10 11v6M14 11v6" /><path d="M6 7l1 13h10l1-13" /><path d="M9 7V4h6v3" /></svg>
+        </button>
         <button class="icono" aria-label="Rehacer" disabled={posicion >= historial.length - 1} onclick={() => irA(posicion + 1)}>
           <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5" /><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13" /></svg>
         </button>
@@ -431,6 +569,7 @@
   </header>
 
   <section
+    bind:this={seccionFoto}
     class="foto"
     aria-label="Foto (mantén pulsado para ver el original)"
     onpointerdown={pulsar}
@@ -451,6 +590,18 @@
         {/if}
       </div>
     {/if}
+    {#if info && pestana === 'recortar' && !comparando && caja.w > 0}
+      <div class="sobre" style="left: {caja.x}px; top: {caja.y}px; width: {caja.w}px; height: {caja.h}px">
+        <MarcoRecorte
+          recorte={receta.geometria.recorte ?? COMPLETO}
+          aspecto={aspectoFijo()}
+          {modoLinea}
+          oncambio={cambiarRecorte}
+          onfin={confirmar}
+          onlinea={enderezarConLinea}
+        />
+      </div>
+    {/if}
     {#if comparando}<div class="etiqueta">Original</div>{/if}
     {#if ocupado && estado !== 'cargando'}
       <div class="cargando">{estado === 'abriendo' ? 'Abriendo…' : 'Exportando…'}</div>
@@ -463,13 +614,25 @@
   {#if info}
     <section class="panel">
       <div class="pestanas" role="tablist">
-        {#each [['filtros', 'Filtros'], ['ajustes', 'Ajustes'], ['curvas', 'Curvas']] as [id, nombre] (id)}
-          <button role="tab" aria-selected={pestana === id} class:activa={pestana === id} onclick={() => (pestana = id as Pestana)}>{nombre}</button>
+        {#each [['recortar', 'Recortar'], ['filtros', 'Filtros'], ['ajustes', 'Ajustes'], ['curvas', 'Curvas']] as [id, nombre] (id)}
+          <button role="tab" aria-selected={pestana === id} class:activa={pestana === id} onclick={() => cambiarPestana(id as Pestana)}>{nombre}</button>
         {/each}
-        <button class="reiniciar" disabled={!editada} onclick={empezarDeNuevo}>Quitar todo</button>
       </div>
       <div class="contenido">
-        {#if pestana === 'ajustes'}
+        {#if pestana === 'recortar'}
+          <PanelRecorte
+            geometria={receta.geometria}
+            {modoLinea}
+            onproporcion={cambiarProporcion}
+            onangulo={cambiarAngulo}
+            onfin={confirmar}
+            ongirar={() => transformar(girar)}
+            onvoltearH={() => transformar(voltearH)}
+            onvoltearV={() => transformar(voltearV)}
+            onlinea={() => (modoLinea = !modoLinea)}
+            onrestablecer={restablecerGeometria}
+          />
+        {:else if pestana === 'ajustes'}
           <Sliders valores={receta.sliders} oncambio={cambiarSlider} onfin={confirmar} />
         {:else if pestana === 'curvas'}
           <Curvas curvas={receta.curvas} {luts} oncambio={cambiarCurva} onfin={confirmar} />
@@ -483,7 +646,7 @@
   <nav class="barra">
     <button class="boton" disabled={ocupado} onclick={() => entradaGaleria?.click()}>Galería</button>
     <button class="boton" disabled={ocupado} onclick={() => entradaCamara?.click()}>Cámara</button>
-    <button class="boton principal" disabled={ocupado || !info} onclick={() => (hojaExportar = true)}>Exportar</button>
+    <button class="boton principal" disabled={ocupado || !info} onclick={abrirExportar}>Exportar</button>
   </nav>
 
   <input bind:this={entradaGaleria} type="file" accept="image/*" hidden onchange={abrirArchivo} />
@@ -512,7 +675,7 @@
       <input type="checkbox" bind:checked={conservarUbicacion} onchange={() => (exportado = null)} />
     </label>
     {#if info}
-      <p class="sub">{info.width}×{info.height} px · {editada ? 'con tus ajustes' : 'sin ajustes'} · sin miniatura EXIF{conservarUbicacion ? '' : ' · sin ubicación'}</p>
+      <p class="sub">{tamExport ? `${tamExport[0]}×${tamExport[1]}` : `${info.width}×${info.height}`} px · {editada ? 'con tus ajustes' : 'sin ajustes'} · sin miniatura EXIF{conservarUbicacion ? '' : ' · sin ubicación'}</p>
     {/if}
     {#if exportado}
       <p class="sub">Listo: {exportado.name} · {mb(exportado.size)}</p>
@@ -534,11 +697,16 @@
         </p>
       {/if}
     {:else}
-      <div class="acciones">
-        <button class="boton principal" disabled={ocupado} onclick={exportar}>
-          {estado === 'exportando' ? 'Exportando…' : 'Preparar archivo'}
-        </button>
-      </div>
+      {#if estado === 'exportando'}
+        <div class="progreso" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(progreso * 100)}>
+          <div class="barra-progreso" style="width: {progreso * 100}%"></div>
+        </div>
+        <p class="sub">Exportando… {Math.round(progreso * 100)} %</p>
+      {:else}
+        <div class="acciones">
+          <button class="boton principal" disabled={ocupado} onclick={exportar}>Preparar archivo</button>
+        </div>
+      {/if}
     {/if}
   </section>
 {/if}
@@ -622,6 +790,21 @@
     color: var(--texto-2);
     grid-area: 1 / 1;
   }
+  .sobre {
+    position: absolute;
+  }
+  .progreso {
+    height: 8px;
+    border-radius: 4px;
+    background: var(--panel-2);
+    overflow: hidden;
+    margin-top: 16px;
+  }
+  .barra-progreso {
+    height: 100%;
+    background: var(--acento);
+    transition: width 0.15s linear;
+  }
   .etiqueta {
     position: absolute;
     top: 14px;
@@ -659,8 +842,8 @@
   }
   .pestanas {
     display: flex;
-    gap: 4px;
-    padding: 0 12px 4px;
+    justify-content: space-around;
+    padding: 0 8px 4px;
   }
   .pestanas button {
     min-height: 40px;
@@ -672,11 +855,6 @@
   .pestanas .activa {
     color: var(--texto);
     border-bottom-color: var(--acento);
-  }
-  .reiniciar {
-    margin-left: auto;
-    font-weight: 400 !important;
-    font-size: 14px;
   }
   .contenido {
     min-height: 120px;

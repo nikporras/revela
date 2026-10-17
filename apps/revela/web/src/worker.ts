@@ -1,5 +1,5 @@
 // Web Worker del motor: aquí corre el wasm de Revela, fuera del hilo de la interfaz.
-import init, { Revela, gpuParams, memoryBytes } from './wasm/revela_core.js';
+import init, { Revela, anguloLinea, gpuParams, memoryBytes, plano } from './wasm/revela_core.js';
 import type { Peticion, Respuesta } from './lib/protocolo';
 
 let motor: Revela | undefined;
@@ -44,8 +44,8 @@ self.onmessage = async (e: MessageEvent<Peticion>) => {
         break;
       }
       case 'previaMotor': {
-        const [lado, ajustes] = args as Peticion<'previaMotor'>['args'];
-        const p = m.developPreview(lado, ajustes);
+        const [lado, ajustes, geometria] = args as Peticion<'previaMotor'>['args'];
+        const p = m.developPreview(lado, ajustes, geometria);
         result = p;
         transfer = [p.pixels.buffer];
         break;
@@ -57,9 +57,27 @@ self.onmessage = async (e: MessageEvent<Peticion>) => {
         transfer = [p.luts.buffer];
         break;
       }
+      case 'previaGpu': {
+        const [ajustes, geometria, ancho, alto] = args as Peticion<'previaGpu'>['args'];
+        const params = gpuParams(ajustes);
+        result = { params, plano: plano(geometria, ancho, alto) };
+        transfer = [params.luts.buffer];
+        break;
+      }
+      case 'anguloLinea': {
+        const [x0, y0, x1, y1] = args as Peticion<'anguloLinea'>['args'];
+        result = anguloLinea(x0, y0, x1, y1);
+        break;
+      }
+      case 'tamanoExport': {
+        const [geometria] = args as Peticion<'tamanoExport'>['args'];
+        result = Array.from(m.exportSize(geometria));
+        break;
+      }
       case 'exportar': {
-        const [formato, calidad, conservar, ajustes] = args as Peticion<'exportar'>['args'];
-        const bytes = m.export(formato, calidad, conservar, ajustes);
+        const [formato, calidad, conservar, ajustes, geometria] = args as Peticion<'exportar'>['args'];
+        // El progreso sale del worker mientras el wasm trabaja (no hay que esperar a que acabe).
+        const bytes = m.export(formato, calidad, conservar, ajustes, geometria, (f: number) => enviar({ id, progreso: f }));
         result = bytes;
         transfer = [bytes.buffer];
         break;

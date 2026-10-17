@@ -9,7 +9,7 @@ export interface Resultado<T> {
   memoria: number;
 }
 
-type Pendiente = { resolve: (r: Resultado<unknown>) => void; reject: (e: Error) => void };
+type Pendiente = { resolve: (r: Resultado<unknown>) => void; reject: (e: Error) => void; progreso?: (f: number) => void };
 
 /** Un worker con su propia copia del motor. */
 export class Motor {
@@ -20,12 +20,17 @@ export class Motor {
   constructor(private nombre = 'motor-revela') {}
 
   pedir<K extends Op>(op: K, ...args: Peticiones[K]['args']): Promise<Resultado<Peticiones[K]['result']>> {
+    return this.pedirConProgreso(op, undefined, ...args);
+  }
+
+  /** Como `pedir`, recibiendo el progreso (0..1) de las operaciones largas (exportar). */
+  pedirConProgreso<K extends Op>(op: K, progreso: ((f: number) => void) | undefined, ...args: Peticiones[K]['args']): Promise<Resultado<Peticiones[K]['result']>> {
     this.worker ??= this.crearWorker();
     const id = this.siguiente++;
     const transfer = args.filter((a): a is ArrayBuffer => a instanceof ArrayBuffer);
     const msg: Peticion<K> = { id, op, args };
     return new Promise((resolve, reject) => {
-      this.pendientes.set(id, { resolve: resolve as Pendiente['resolve'], reject });
+      this.pendientes.set(id, { resolve: resolve as Pendiente['resolve'], reject, progreso });
       this.worker!.postMessage(msg, transfer);
     });
   }
@@ -42,6 +47,10 @@ export class Motor {
       const r = e.data;
       const p = this.pendientes.get(r.id);
       if (!p) return;
+      if ('progreso' in r) {
+        p.progreso?.(r.progreso);
+        return;
+      }
       this.pendientes.delete(r.id);
       if (r.ok) {
         p.resolve({ valor: r.result, ms: r.ms, memoria: r.memoria });

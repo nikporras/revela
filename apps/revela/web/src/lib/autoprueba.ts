@@ -6,14 +6,14 @@
 // - diferencia máxima por canal ≤ 1/255;
 // - bandas: en los degradados suaves, la GPU debe dar tantos niveles distintos como el motor (una
 //   GPU con poca precisión los aplasta en escalones).
-import type { ParametrosGpu, Revelador } from './gpu';
+import type { ParametrosGpu, PlanoGpu, Revelador } from './gpu';
 import type { Previa } from './protocolo';
 
 export interface MotorDePrueba {
   abrir(nombre: string, bytes: Uint8Array): Promise<void>;
   previa(lado: number): Promise<Previa>;
-  previaMotor(lado: number, json: string): Promise<Previa>;
-  gpuParams(json: string): Promise<ParametrosGpu>;
+  previaMotor(lado: number, json: string, geometria: string): Promise<Previa>;
+  previaGpu(json: string, geometria: string, ancho: number, alto: number): Promise<{ params: ParametrosGpu; plano: PlanoGpu }>;
 }
 
 export interface Receta {
@@ -24,7 +24,11 @@ export interface Receta {
 export interface Resultado {
   imagen: string;
   receta: string;
+  /** Encuadre (vacío: la foto tal cual). */
+  geometria?: string;
   max: number;
+  /** Píxeles donde uno ve foto y el otro transparente (solo en el borde de la foto girada). */
+  borde?: number;
   /** Píxeles con más de 1/255 de diferencia. */
   fuera: number;
   /** Niveles distintos a lo largo del degradado: GPU / motor (solo en las imágenes suaves). */
@@ -41,6 +45,8 @@ export interface Informe {
 
 const LADO = 512;
 export const TOLERANCIA = 1;
+/** Píxeles de borde (dentro/fuera de la foto girada) que pueden diferir por redondeo. */
+export const MAX_BORDE = 4;
 
 /** Recetas que tocan cada etapa, solas y juntas, en sus extremos. */
 export function recetasDePrueba(extra: Receta[] = []): Receta[] {
@@ -93,6 +99,23 @@ export function recetasDePrueba(extra: Receta[] = []): Receta[] {
     });
   }
   return base.concat(extra);
+}
+
+/** Encuadres de prueba: giros, volteos, enderezados (con y sin esquinas vacías) y recortes. */
+export const GEOMETRIAS: { nombre: string; json: string }[] = [
+  { nombre: 'girar 90°', json: '{"giro":1}' },
+  { nombre: 'girar 270° + voltear H', json: '{"giro":3,"espejoH":true}' },
+  { nombre: 'voltear V + recorte', json: '{"espejoV":true,"recorte":[0.4,0.55,0.5,0.6]}' },
+  { nombre: 'enderezar 12,5° recortado', json: '{"angulo":12.5,"recorte":[0.5,0.5,0.62,0.62]}' },
+  { nombre: 'enderezar −30° sin recorte', json: '{"angulo":-30}' },
+  { nombre: 'todo junto', json: '{"giro":1,"espejoV":true,"angulo":-7.3,"recorte":[0.45,0.5,0.6,0.55]}' },
+];
+
+/** Recetas de color que se cruzan con los encuadres (no todas: sería muy lento en el teléfono). */
+function recetasConGeometria(todas: Receta[]): Receta[] {
+  const nombres = ['sin ajustes', 'todo fuerte', 'azar 3', 'azar 9'];
+  const filtro = todas.find((r) => r.nombre.startsWith('filtro '));
+  return todas.filter((r) => nombres.includes(r.nombre)).concat(filtro ? [filtro] : []);
 }
 
 /** Imágenes sintéticas en PNG: degradados suaves (cielos), todos los colores, ruido y grises. */
@@ -161,20 +184,39 @@ export async function probar(motor: MotorDePrueba, rev: Revelador, recetas = rec
     await motor.abrir(`${img.nombre}.png`, img.bytes);
     const base = await motor.previa(LADO);
     rev.cargar(base.width, base.height, base.pixels);
-    for (const r of recetas) {
-      progreso?.(`${img.nombre}: ${r.nombre}`);
-      rev.dibujar(await motor.gpuParams(r.json));
+    const casos: { r: Receta; g: { nombre: string; json: string } | null }[] = recetas.map((r) => ({ r, g: null }));
+    for (const g of GEOMETRIAS) for (const r of recetasConGeometria(recetas)) casos.push({ r, g });
+    for (const { r, g } of casos) {
+      progreso?.(`${img.nombre}: ${r.nombre}${g ? ` · ${g.nombre}` : ''}`);
+      const geo = g ? g.json : '{}';
+      const { params, plano } = await motor.previaGpu(r.json, geo, base.width, base.height);
+      rev.dibujar(params, g ? plano : null);
       const gpu = rev.leer();
-      const ref = (await motor.previaMotor(LADO, r.json)).pixels;
+      const ref = (await motor.previaMotor(LADO, r.json, geo)).pixels;
       let max = 0;
       let fuera = 0;
+      let borde = 0;
+      if (gpu.length !== ref.length) throw new Error(`tamaños distintos (${r.nombre}${g ? `, ${g.nombre}` : ''})`);
       for (let i = 0; i < gpu.length; i += 4) {
+        const da = Math.abs(gpu[i + 3] - ref[i + 3]);
+        if (da > TOLERANCIA) {
+          // Un punto justo en el borde de la foto girada: uno lo ve dentro y el otro fuera.
+          borde++;
+          continue;
+        }
+        if (ref[i + 3] === 0) continue;
         const d = Math.max(Math.abs(gpu[i] - ref[i]), Math.abs(gpu[i + 1] - ref[i + 1]), Math.abs(gpu[i + 2] - ref[i + 2]));
         if (d > max) max = d;
         if (d > TOLERANCIA) fuera++;
       }
       const res: Resultado = { imagen: img.nombre, receta: r.nombre, max, fuera };
-      if (img.suave) {
+      if (g) {
+        res.geometria = g.nombre;
+        res.borde = borde;
+        // Se admite un puñado de píxeles de borde por redondeo (nunca dentro de un recorte válido).
+        if (borde > MAX_BORDE) res.max = Math.max(res.max, 255);
+      }
+      if (img.suave && !g) {
         res.niveles = [niveles(gpu, base.width, base.height), niveles(ref, base.width, base.height)];
         // Una GPU con poca precisión pierde niveles: se exige al menos el 98 % de los del motor.
         if (res.niveles[0] < res.niveles[1] * 0.98) bandas = true;

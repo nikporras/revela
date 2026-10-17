@@ -24,6 +24,13 @@ export interface ParametrosGpu {
   blendBalance: Float32Array;
 }
 
+/** Encuadre: tamaño de la salida y transformación salida → foto (ver `geometria.rs`). */
+export interface PlanoGpu {
+  ancho: number;
+  alto: number;
+  m: Float32Array;
+}
+
 const LUT = 1024;
 
 const VERT = `#version 300 es
@@ -41,6 +48,11 @@ precision highp sampler2D;
 uniform sampler2D uImg;
 uniform sampler2D uLut;
 uniform int uAlto;
+// Geometría: centro del píxel de salida (u + ½, v + ½) → punto de la foto (m · (u', v', 1)).
+uniform bool uGeo;
+uniform vec3 uMx;
+uniform vec3 uMy;
+uniform ivec2 uOrigen;
 uniform bool uWb;
 uniform vec3 uGain;
 uniform float uConK;
@@ -111,10 +123,40 @@ vec3 hsv2rgb(float h, float s, float v) {
   return r + (v - c);
 }
 
+// Bilineal con los centros de píxel en i + ½ y los vecinos sujetos al borde; fuera de la foto,
+// transparente. Igual que geometria::bilineal en el núcleo.
+vec4 muestra(float x, float y) {
+  if (!(x >= 0.0 && y >= 0.0 && x <= float(uOrigen.x) && y <= float(uOrigen.y))) return vec4(0.0);
+  float fx = x - 0.5;
+  float fy = y - 0.5;
+  float ix = floor(fx);
+  float iy = floor(fy);
+  float tx = fx - ix;
+  float ty = fy - iy;
+  ivec2 lim = uOrigen - 1;
+  int x0 = clamp(int(ix), 0, lim.x);
+  int y0 = clamp(int(iy), 0, lim.y);
+  int x1 = clamp(int(ix) + 1, 0, lim.x);
+  int y1 = clamp(int(iy) + 1, 0, lim.y);
+  vec4 a = texelFetch(uImg, ivec2(x0, y0), 0);
+  vec4 b = texelFetch(uImg, ivec2(x1, y0), 0);
+  vec4 c = texelFetch(uImg, ivec2(x0, y1), 0);
+  vec4 d = texelFetch(uImg, ivec2(x1, y1), 0);
+  vec4 arriba = a + (b - a) * tx;
+  vec4 abajo = c + (d - c) * tx;
+  return arriba + (abajo - arriba) * ty;
+}
+
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
   p.y = uAlto - 1 - p.y;
-  vec4 src = texelFetch(uImg, p, 0);
+  vec4 src;
+  if (uGeo) {
+    vec2 q = vec2(float(p.x) + 0.5, float(p.y) + 0.5);
+    src = muestra(uMx.x * q.x + uMx.y * q.y + uMx.z, uMy.x * q.x + uMy.y * q.y + uMy.z);
+  } else {
+    src = texelFetch(uImg, p, 0);
+  }
   vec3 c = src.rgb;
 
   // 1. Temperatura/tinte y exposición, en luz lineal.
@@ -205,8 +247,11 @@ export class Revelador {
   private img: WebGLTexture;
   private lut: WebGLTexture;
   private u = new Map<string, WebGLUniformLocation | null>();
+  /** Tamaño de la foto cargada (la textura). */
   ancho = 0;
   alto = 0;
+  /** Tamaño de lo último dibujado. */
+  salida: [number, number] = [0, 0];
 
   constructor(readonly lienzo: HTMLCanvasElement) {
     const gl = lienzo.getContext('webgl2', { antialias: false, premultipliedAlpha: false, preserveDrawingBuffer: true });
@@ -231,6 +276,7 @@ export class Revelador {
     const gl = this.gl;
     this.ancho = ancho;
     this.alto = alto;
+    this.salida = [ancho, alto];
     this.lienzo.width = ancho;
     this.lienzo.height = alto;
     gl.bindTexture(gl.TEXTURE_2D, this.img);
@@ -238,15 +284,29 @@ export class Revelador {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, ancho, alto, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(pixeles.buffer, pixeles.byteOffset, pixeles.byteLength));
   }
 
-  /** Dibuja con `p` (o sin ajustes si es `null`, para comparar antes/después). */
-  dibujar(p: ParametrosGpu | null) {
+  /**
+   * Dibuja con los ajustes `p` (o sin ajustes si es `null`, para comparar antes/después) y el
+   * encuadre `plano` (o la foto tal cual si es `null`).
+   */
+  dibujar(p: ParametrosGpu | null, plano: PlanoGpu | null = null) {
     const gl = this.gl;
-    gl.viewport(0, 0, this.ancho, this.alto);
+    const w = plano ? plano.ancho : this.ancho;
+    const h = plano ? plano.alto : this.alto;
+    this.salida = [w, h];
+    if (this.lienzo.width !== w) this.lienzo.width = w;
+    if (this.lienzo.height !== h) this.lienzo.height = h;
+    gl.viewport(0, 0, w, h);
     gl.useProgram(this.prog);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.img);
     gl.uniform1i(this.loc('uImg'), 0);
-    gl.uniform1i(this.loc('uAlto'), this.alto);
+    gl.uniform1i(this.loc('uAlto'), h);
+    gl.uniform1i(this.loc('uGeo'), plano ? 1 : 0);
+    if (plano) {
+      gl.uniform3f(this.loc('uMx'), plano.m[0], plano.m[1], plano.m[2]);
+      gl.uniform3f(this.loc('uMy'), plano.m[3], plano.m[4], plano.m[5]);
+      gl.uniform2i(this.loc('uOrigen'), this.ancho, this.alto);
+    }
     const nada = !p;
     gl.uniform1i(this.loc('uWb'), nada || !p.wb ? 0 : 1);
     gl.uniform1f(this.loc('uConK'), nada ? 0 : p.contrastK[0]);
@@ -277,7 +337,7 @@ export class Revelador {
   /** Lo que hay dibujado, RGBA8 de arriba abajo (como la previa del motor). */
   leer(): Uint8Array {
     const gl = this.gl;
-    const { ancho: w, alto: h } = this;
+    const [w, h] = this.salida;
     const abajoArriba = new Uint8Array(w * h * 4);
     gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, abajoArriba);
     const out = new Uint8Array(w * h * 4);

@@ -22,8 +22,10 @@ try {
   console.log(`GPU: ${inf.gpu}`);
   console.log(`${inf.resultados.length} comparaciones en ${(inf.ms / 1000).toFixed(1)} s`);
   const malos = inf.resultados.filter((r) => r.max > 1 || (r.niveles && r.niveles[0] < r.niveles[1] * 0.98));
-  for (const r of malos.slice(0, 30)) console.log(`  ✗ ${r.imagen} · ${r.receta}: máx ${r.max}/255, ${r.fuera} px, niveles ${r.niveles ?? '-'}`);
-  console.log(`Peor: ${inf.peor.imagen} · ${inf.peor.receta}: ${inf.peor.max}/255`);
+  for (const r of malos.slice(0, 30)) console.log(`  ✗ ${r.imagen} · ${r.receta}${r.geometria ? ` · ${r.geometria}` : ''}: máx ${r.max}/255, ${r.fuera} px, borde ${r.borde ?? '-'}, niveles ${r.niveles ?? '-'}`);
+  console.log(`Peor: ${inf.peor.imagen} · ${inf.peor.receta}${inf.peor.geometria ? ` · ${inf.peor.geometria}` : ''}: ${inf.peor.max}/255`);
+  const bordes = inf.resultados.filter((r) => r.borde).map((r) => r.borde);
+  if (bordes.length) console.log(`Píxeles de borde distintos (encuadres girados): máx ${Math.max(...bordes)} por imagen`);
   console.log(inf.ok ? 'IGUALDAD OK (≤ 1/255, sin bandas)' : 'IGUALDAD FALLA');
   codigo = inf.ok ? 0 : 1;
 } catch (e) {
