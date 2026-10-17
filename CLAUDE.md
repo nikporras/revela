@@ -89,6 +89,41 @@ Repo: `github.com/nikporras/revela` (fork de `storytold/photocraft`).
 5. **Producto y redes:** funciones de la versión 2.
 6. **Pulido:** rendimiento, pruebas en Android e iOS, iconos y nombre de Revela.
 
-## Primera tarea
+## Estado actual (17 de octubre de 2026)
 
-Fases 1 y 2. No escribas código de la app todavía: instala, compila la versión web de PhotoCraft y preséntame el plan.
+En línea: https://nikporras.github.io/revela/ (versión `34d0947`). Cada push a `main` pasa las pruebas, incluida la de igualdad entre la previa en la GPU y la exportación, y si pasan se despliega.
+
+### Hecho
+
+- **Fases 1 a 3:** preparación, plan aprobado y esqueleto PWA. Ver `docs/revela-arquitectura.md`.
+- **Fase 4 (MVP, Versión 1), completa:**
+  - Abrir desde galería o cámara, respetando la orientación EXIF.
+  - Recortar con 7 proporciones, enderezar sin esquinas vacías (rueda o "Con línea"), girar 90° y voltear.
+  - Ajustes, curvas y 25 filtros (traducidos de LightCraft, con atribución).
+  - Deshacer y rehacer, y mantener pulsado para comparar.
+  - Exportar JPG o PNG (calidad 90 por defecto, con barra de progreso), compartir y guardar en carpeta. Sin GPS por defecto.
+  - Zoom: pellizco, arrastre con un dedo, doble toque entre ajustar a pantalla y 100 %, y zona nítida a resolución completa. Los sliders tienen prioridad sobre la zona nítida.
+  - Con el botón Cámara, la exportación se nombra por fecha y aparece un aviso de calidad que se puede cerrar.
+- **Probado en el S25 Ultra:**
+  - Ajustes en vivo: 2 ms de mediana.
+  - "Probar GPU": diferencia máxima 1/255.
+  - Recortar y exportar, guardar en carpeta, compartir y cámara.
+  - Memoria al exportar igual que al abrir (unos 180 MB).
+
+### Falta probar en el S25
+
+- **Zoom:**
+  - Pellizco y arrastre en Ajustes y en Recortar.
+  - Doble toque entre ajustar y 100 %.
+  - Que la zona nítida aparezca al soltar.
+  - Que mover un slider con zoom siga fluido.
+  - Que en Recortar las asas funcionen con zoom.
+- **Botón Cámara:** el nombre del archivo exportado y el aviso con X (no debe volver a salir una vez cerrado).
+- **Safari de iOS:** todavía sin probar.
+
+### Lo siguiente: Fase 5 (Versión 2)
+
+1. **Quitar fondo** en el dispositivo, con fondo de color o degradado. La API ya está diseñada para poder cambiar después a un modelo de IA (ver la arquitectura).
+2. **Texto** sobre la foto: fuente, tamaño, color y sombra. Fuentes OFL servidas por el motor (decisión en la arquitectura).
+3. **Plantillas para redes:** 1:1 (1080×1080), 4:5 (1080×1350) y 9:16 (1080×1920).
+4. Edición en lote (después de las tres anteriores).
