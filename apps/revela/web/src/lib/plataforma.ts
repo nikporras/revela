@@ -27,6 +27,25 @@ export function guardarLimiteMp(v: number) {
   }
 }
 
+const CLAVE_AVISO_CAMARA = 'revela.avisoCamaraCerrado';
+
+/** ¿Ya cerró el usuario el aviso de calidad de la Cámara? (Así no vuelve a salir.) */
+export function avisoCamaraCerrado(): boolean {
+  try {
+    return localStorage.getItem(CLAVE_AVISO_CAMARA) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function cerrarAvisoCamara() {
+  try {
+    localStorage.setItem(CLAVE_AVISO_CAMARA, '1');
+  } catch {
+    // Sin almacenamiento, queda cerrado solo en esta sesión.
+  }
+}
+
 /** Lado mayor de la vista previa: lo que la pantalla puede mostrar, como mucho 2048 px. */
 export function ladoPrevia(): number {
   const lado = Math.max(screen.width, screen.height) * (window.devicePixelRatio || 1);
