@@ -21,6 +21,7 @@
     type Rect,
   } from './lib/recorte';
   import { Motor, motor, pedir, ultimaGana } from './lib/motor';
+  import { actualizarAhora, buscarActualizacion, vigilarActualizaciones, type EstadoActualizacion } from './lib/actualizar';
   import { AJUSTADA, acercar, esAjustada, limitar, mezclar, type Medidas, type Vista } from './lib/zoom';
   import { carpetaRecordada, guardarEnCarpeta, nombreBase as elegirNombreBase, soportaCarpeta } from './lib/guardar';
   import { Revelador, hayWebGL2, type ParametrosGpu, type PlanoGpu } from './lib/gpu';
@@ -74,6 +75,10 @@
 
   let hojaExportar = $state(false);
   let hojaInfo = $state(false);
+  let actualizacion = $state<EstadoActualizacion>('al-dia');
+  /** Se buscó a mano (para decir "ya tienes la última versión" solo entonces). */
+  let buscada = $state(false);
+  onMount(() => vigilarActualizaciones((e) => (actualizacion = e)));
   let formato = $state<FormatoExport>('jpg');
   let calidad = $state(90);
   let conservarUbicacion = $state(false);
@@ -1194,6 +1199,12 @@
     {/if}
   </section>
 
+  {#if actualizacion === 'disponible'}
+    <div class="mensaje cerrable nueva" role="status">
+      <p>Nueva versión de Revela disponible.{#if editada} Al actualizar se pierden los cambios sin exportar.{/if}</p>
+      <button class="enlace-boton" onclick={actualizarAhora}>Actualizar</button>
+    </div>
+  {/if}
   {#if error}<p class="mensaje error" role="alert">{error}</p>{/if}
   {#if aviso}<p class="mensaje" role="status">{aviso}</p>{/if}
   {#if avisoCamara}
@@ -1337,6 +1348,18 @@
       Filtros adaptados de los presets de <a href="https://github.com/storytold/lightcraft" target="_blank" rel="noopener">LightCraft</a> (código abierto, MIT o Apache 2.0).
       <a href="https://github.com/nikporras/revela" target="_blank" rel="noopener">Código de Revela</a>.
     </p>
+    <div class="version">
+      <span>Versión {__REVELA_VERSION__}</span>
+      {#if actualizacion === 'disponible'}
+        <button class="boton principal" onclick={actualizarAhora}>Actualizar ahora</button>
+      {:else if actualizacion !== 'no-disponible'}
+        <button class="boton" disabled={actualizacion === 'buscando'} onclick={() => ((buscada = true), buscarActualizacion())}>
+          {actualizacion === 'buscando' ? 'Buscando…' : 'Buscar actualización'}
+        </button>
+      {/if}
+    </div>
+    {#if buscada && actualizacion === 'al-dia'}<p class="sub">Ya tienes la última versión.</p>{/if}
+    {#if actualizacion === 'sin-conexion'}<p class="sub">No se pudo comprobar (¿sin conexión?).</p>{/if}
     <label class="fila">
       <span>Límite de tamaño al abrir</span>
       <select value={limiteMp} onchange={(e) => cambiarLimite(Number((e.currentTarget as HTMLSelectElement).value))}>
@@ -1524,6 +1547,26 @@
   }
   .error {
     color: var(--error);
+  }
+  .nueva p {
+    color: var(--texto);
+  }
+  .enlace-boton {
+    color: var(--acento);
+    font-weight: 600;
+    min-height: 40px;
+    padding: 0 4px;
+  }
+  .version {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 12px;
+  }
+  .version .boton {
+    flex: none;
+    padding: 0 16px;
   }
   .panel {
     background: var(--panel);
