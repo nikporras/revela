@@ -444,7 +444,7 @@
       capturar(e.pointerId);
       if (punteros.size === 2) {
         marcoRecorte?.cancelar();
-        soltarDirecto();
+        soltarDirecto(true);
         clearTimeout(temporizador);
         soltar();
         toque = null;
@@ -458,7 +458,7 @@
       e.stopPropagation();
       capturar(e.pointerId);
       toque = null;
-      empezarDirecto(e);
+      bajarDirecto(e);
       return;
     }
     const asa = !!(e.target as HTMLElement).dataset?.asa;
@@ -479,7 +479,7 @@
     if (!punteros.has(e.pointerId)) return;
     const p = pos(e);
     punteros.set(e.pointerId, p);
-    if (arrastreDirecto && punteros.size === 1) {
+    if (dedoDirecto && punteros.size === 1) {
       e.stopPropagation();
       moverDirecto(e);
       return;
@@ -563,70 +563,165 @@
 
   // --- Mezcla de color sobre la foto ---------------------------------------------------
   //
-  // Se toca un color en la foto y se arrastra en vertical (arriba: más). Se mira el color sin la
-  // mezcla ni la gradación (lo que ve el HSL del motor) y el cambio se reparte entre los colores
-  // vecinos con los mismos pesos que el motor, normalizados para que el punto tocado cambie
-  // justo lo que se arrastra.
+  // Con el botón "Sobre la foto":
+  // - mantener pulsado: aparece una lupa sobre el dedo; se apunta moviéndolo y al soltar se fija
+  //   ese color;
+  // - un toque corto fija el color de ese punto;
+  // - arrastrar en vertical (arriba: más) ajusta el color fijado (si no hay, el del punto donde
+  //   empieza el arrastre).
+  // El color se mira sin la mezcla ni la gradación (lo que ve el HSL del motor) y el cambio se
+  // reparte entre los colores vecinos con los pesos del motor, normalizados para que el punto
+  // fijado cambie justo lo que se arrastra.
 
   /** Canal que cambia el arrastre, o `null` si el ajuste sobre la foto está apagado. */
   let directo = $state<CanalHsl | null>(null);
   let bandaMezcla = $state(0);
-  /** Lo que se detectó bajo el dedo, para mostrarlo sobre la foto. */
-  let deteccion = $state<{ texto: string; color: string } | null>(null);
-  let arrastreDirecto: { y0: number; pesos: number[]; norma: number; inicio: number[]; canal: CanalHsl } | null = null;
+  interface Color {
+    texto: string;
+    css: string;
+    pesos: number[];
+    norma: number;
+  }
+  /** El color fijado (o el que se está apuntando con la lupa); `pesos` vacío si es gris. */
+  let fijado = $state<Color | null>(null);
+  /** La lupa: dónde se dibuja (en la sección) y si está a la vista. */
+  let lupa = $state<{ x: number; y: number } | null>(null);
+  let lienzoLupa: HTMLCanvasElement | undefined = $state();
+  /** El dedo sobre la foto con el ajuste activo. */
+  let dedoDirecto: {
+    x0: number;
+    y0: number;
+    modo: 'espera' | 'apuntar' | 'ajustar';
+    temporizador: ReturnType<typeof setTimeout>;
+    inicio?: number[];
+    canal?: CanalHsl;
+  } | null = null;
+
+  const LUPA_PX = 15; // píxeles de la previa que se ven en la lupa
+  const LUPA_LADO = 120; // tamaño de la lupa en pantalla
 
   function ponerDirecto(c: CanalHsl | null) {
     directo = c;
-    if (!c) deteccion = null;
+    if (!c) {
+      fijado = null;
+      lupa = null;
+    }
   }
 
-  function colorBajo(e: PointerEvent): [number, number, number] | null {
+  /** El punto de la previa (píxeles del lienzo) bajo una posición de la pantalla. */
+  function puntoPrevia(cx: number, cy: number): [number, number] | null {
     const l = lienzoVisible();
     if (!l) return null;
     const r = l.getBoundingClientRect();
-    const u = (e.clientX - r.left) / r.width;
-    const v = (e.clientY - r.top) / r.height;
+    const u = (cx - r.left) / r.width;
+    const v = (cy - r.top) / r.height;
     if (u < 0 || u > 1 || v < 0 || v > 1) return null;
-    const [x, y] = [Math.floor(u * l.width), Math.floor(v * l.height)];
-    if (usarGpu && revelador) return revelador.muestra(comparando ? null : ultimosParams, ultimoPlano, x, y);
-    // Sin GPU: lo que se ve (con la mezcla puesta; es una aproximación).
-    const d = l.getContext('2d')?.getImageData(Math.max(0, x - 2), Math.max(0, y - 2), 5, 5).data;
-    if (!d) return null;
-    const suma = [0, 0, 0];
-    for (let i = 0; i < d.length; i += 4) for (let c = 0; c < 3; c++) suma[c] += d[i + c];
-    return suma.map((s) => s / (d.length / 4) / 255) as [number, number, number];
+    return [Math.min(l.width - 1, Math.floor(u * l.width)), Math.min(l.height - 1, Math.floor(v * l.height))];
   }
 
-  function empezarDirecto(e: PointerEvent) {
-    const rgb = colorBajo(e);
-    if (!rgb || !directo) return;
+  function colorEn(x: number, y: number): Color | null {
+    const l = lienzoVisible();
+    if (!l) return null;
+    let rgb: [number, number, number];
+    if (usarGpu && revelador) rgb = revelador.muestra(comparando ? null : ultimosParams, ultimoPlano, x, y);
+    else {
+      // Sin GPU: lo que se ve (con la mezcla puesta; es una aproximación).
+      const d = l.getContext('2d')?.getImageData(Math.max(0, x - 2), Math.max(0, y - 2), 5, 5).data;
+      if (!d) return null;
+      const suma = [0, 0, 0];
+      for (let i = 0; i < d.length; i += 4) for (let c = 0; c < 3; c++) suma[c] += d[i + c];
+      rgb = suma.map((v) => v / (d.length / 4) / 255) as [number, number, number];
+    }
     const css = `rgb(${rgb.map((c) => Math.round(c * 255)).join(' ')})`;
     const [h, sat] = tonoYSaturacion(...rgb);
-    if (sat < 0.08) {
-      deteccion = { texto: 'Gris: toca una zona con color', color: css };
-      return;
-    }
+    if (sat < 0.08) return { texto: 'Gris: elige una zona con color', css, pesos: [], norma: 0 };
     const pesos = pesosBandas(h);
-    const norma = pesos.reduce((a, w) => a + w * w, 0);
     const orden = pesos.map((w, k) => [w, k]).filter(([w]) => w > 0.05).sort((a, b) => b[0] - a[0]);
+    const total = orden.reduce((a, [w]) => a + w, 0) || 1;
     bandaMezcla = orden[0][1];
-    deteccion = { texto: orden.map(([w, k]) => `${BANDAS[k].nombre} ${Math.round((w / (orden.reduce((a, [x]) => a + x, 0) || 1)) * 100)} %`).join(' · '), color: css };
-    arrastreDirecto = { y0: e.clientY, pesos, norma, inicio: [...receta.hsl[directo]], canal: directo };
+    return {
+      texto: orden.map(([w, k]) => `${BANDAS[k].nombre} ${Math.round((w / total) * 100)} %`).join(' · '),
+      css,
+      pesos,
+      norma: pesos.reduce((a, w) => a + w * w, 0),
+    };
+  }
+
+  /** Mira el color bajo el dedo, lo deja como el elegido y, si toca, dibuja la lupa. */
+  function apuntar(cx: number, cy: number, conLupa: boolean) {
+    const p = puntoPrevia(cx, cy);
+    if (!p) return;
+    fijado = colorEn(p[0], p[1]);
+    if (!conLupa || !seccionFoto) return;
+    const s = seccionFoto.getBoundingClientRect();
+    // La lupa va encima del dedo (si no cabe, debajo), sin salirse de la sección.
+    const x = Math.min(s.width - LUPA_LADO / 2 - 4, Math.max(LUPA_LADO / 2 + 4, cx - s.left));
+    let y = cy - s.top - LUPA_LADO / 2 - 56;
+    if (y < LUPA_LADO / 2 + 4) y = cy - s.top + LUPA_LADO / 2 + 56;
+    lupa = { x, y };
+    const l = lienzoVisible();
+    const c = lienzoLupa?.getContext('2d');
+    if (!l || !c) return;
+    c.imageSmoothingEnabled = false;
+    c.fillStyle = '#000';
+    c.fillRect(0, 0, LUPA_LADO, LUPA_LADO);
+    const m = (LUPA_PX - 1) / 2;
+    c.drawImage(l, p[0] - m, p[1] - m, LUPA_PX, LUPA_PX, 0, 0, LUPA_LADO, LUPA_LADO);
+    // El píxel del centro, recuadrado.
+    const t = LUPA_LADO / LUPA_PX;
+    c.lineWidth = 2;
+    c.strokeStyle = '#000';
+    c.strokeRect(m * t - 1, m * t - 1, t + 2, t + 2);
+    c.strokeStyle = '#fff';
+    c.strokeRect(m * t, m * t, t, t);
+  }
+
+  function bajarDirecto(e: PointerEvent) {
+    clearTimeout(dedoDirecto?.temporizador);
+    // Si el dedo se queda quieto un momento, sale la lupa para apuntar.
+    const temporizador = setTimeout(() => {
+      if (dedoDirecto?.modo !== 'espera') return;
+      dedoDirecto.modo = 'apuntar';
+      apuntar(dedoDirecto.x0, dedoDirecto.y0, true);
+      navigator.vibrate?.(8);
+    }, 300);
+    dedoDirecto = { x0: e.clientX, y0: e.clientY, modo: 'espera', temporizador };
   }
 
   function moverDirecto(e: PointerEvent) {
-    const a = arrastreDirecto;
-    if (!a) return;
+    const d = dedoDirecto;
+    if (!d || !directo) return;
+    if (d.modo === 'apuntar') return apuntar(e.clientX, e.clientY, true);
+    if (d.modo === 'espera') {
+      if (Math.hypot(e.clientX - d.x0, e.clientY - d.y0) < 8) return;
+      // Arrastre: se ajusta el color fijado o, si no hay, el del punto donde empezó.
+      clearTimeout(d.temporizador);
+      if (!fijado?.pesos.length) apuntar(d.x0, d.y0, false);
+      d.modo = 'ajustar';
+      d.canal = directo;
+      d.inicio = [...receta.hsl[directo]];
+      d.y0 = e.clientY;
+    }
+    const f = fijado;
+    if (!f?.pesos.length || !d.inicio || !d.canal) return;
     // 200 px de arrastre = 100.
-    const d = (a.y0 - e.clientY) / 2;
-    receta.hsl[a.canal] = a.inicio.map((v, k) => Math.max(-100, Math.min(100, Math.round(v + (d * a.pesos[k]) / a.norma))));
+    const delta = (d.y0 - e.clientY) / 2;
+    receta.hsl[d.canal] = d.inicio.map((v, k) => Math.max(-100, Math.min(100, Math.round(v + (delta * f.pesos[k]) / f.norma))));
     aplicar();
   }
 
-  function soltarDirecto() {
-    if (!arrastreDirecto) return;
-    arrastreDirecto = null;
-    confirmar();
+  /**
+   * Fin del dedo: un toque corto fija el color; apuntando, se fija el de la lupa. Con
+   * `cancelar` (llega un segundo dedo: zoom), no se fija nada.
+   */
+  function soltarDirecto(cancelar = false) {
+    const d = dedoDirecto;
+    if (!d) return;
+    clearTimeout(d.temporizador);
+    dedoDirecto = null;
+    lupa = null;
+    if (d.modo === 'espera' && !cancelar) apuntar(d.x0, d.y0, false);
+    if (d.modo === 'ajustar') confirmar();
   }
 
   // --- Zona nítida del zoom ---
@@ -1051,9 +1146,22 @@
     {#if comparando}<div class="etiqueta">Original</div>{/if}
     {#if info && directo && pestana === 'editar' && !comparando}
       <div class="etiqueta directo" role="status">
-        {#if deteccion}<span class="muestra" style:background={deteccion.color}></span>{deteccion.texto}{:else}Toca un color y arrastra ↕{/if}
+        {#if fijado}
+          <span class="muestra" style:background={fijado.css}></span>{fijado.texto}{#if fijado.pesos.length && !lupa}&nbsp;· arrastra ↕{/if}
+        {:else}
+          Mantén pulsado para la lupa, o arrastra ↕
+        {/if}
       </div>
     {/if}
+    <canvas
+      bind:this={lienzoLupa}
+      class="lupa"
+      class:oculto={!lupa}
+      width={LUPA_LADO}
+      height={LUPA_LADO}
+      style:left="{(lupa?.x ?? 0) - LUPA_LADO / 2}px"
+      style:top="{(lupa?.y ?? 0) - LUPA_LADO / 2}px"
+    ></canvas>
     {#if ocupado && estado !== 'cargando'}
       <div class="cargando">{estado === 'abriendo' ? 'Abriendo…' : 'Exportando…'}</div>
     {/if}
@@ -1310,6 +1418,17 @@
     height: 100%;
     background: var(--acento);
     transition: width 0.15s linear;
+  }
+  .lupa {
+    position: absolute;
+    grid-area: auto;
+    width: 120px;
+    height: 120px;
+    max-width: none;
+    border-radius: 50%;
+    border: 3px solid #fff;
+    box-shadow: 0 2px 10px #000a;
+    pointer-events: none;
   }
   .etiqueta.directo {
     display: flex;

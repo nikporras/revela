@@ -111,7 +111,10 @@ locales; exportar 12 MP con el comando entero gasta 770 MB. Por eso:
 - **Pestañas:** Recortar · Filtros · Editar. Editar tiene las secciones Luz (exposición, contraste, luces y sombras), Color, Efectos y Curvas, como Lightroom móvil.
 - **Color:** temperatura, tinte, vibrancia y saturación, más dos paneles:
   - **Mezcla:** los 8 colores del HSL del motor; para cada uno, tono, saturación y luminancia, con las barras pintadas con el color real (el tono va de un color vecino al otro).
-    - **Sobre la foto:** se toca un color en la foto y se arrastra en vertical; se elige qué cambia (tono, saturación o luminancia).
+    - **Sobre la foto:**
+      - Mantener pulsado abre una lupa (15×15 px de la previa ampliados) para apuntar; al soltar se fija ese color.
+      - Un toque corto fija el color del punto.
+      - Arrastrar en vertical ajusta el color fijado. Se elige qué cambia: tono, saturación o luminancia.
     - El color se mira sin la mezcla ni la gradación (`Revelador.muestra`), que es lo que ve el HSL del motor.
     - El cambio se reparte entre los colores vecinos con los pesos del motor (`pesosBandas`), normalizados para que el punto tocado cambie justo lo arrastrado.
   - **Gradación:** una rueda por zona (sombras, medios, luces, global), con luminancia, mezcla y balance.
