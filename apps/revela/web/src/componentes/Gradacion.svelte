@@ -26,14 +26,19 @@
     { id: 'global', nombre: 'Global' },
   ];
 
+  /** Radio (fracción) en que el centro atrae al punto: volver a "sin color" es fácil. */
+  const IMAN = 0.12;
+
   let zona = $state<IdRueda>('sombras');
   const r = $derived(gradacion.ruedas[zona]);
   let rueda: HTMLDivElement | undefined = $state();
   let arrastrando = false;
 
+  /** Distancia al centro (fracción del radio) para una saturación: empieza en el borde del imán. */
+  const radio = (sat: number) => (sat === 0 ? 0 : IMAN + (sat / 100) * (1 - IMAN));
   /** Posición del punto en la rueda (fracciones desde el centro; y hacia arriba). */
-  const px = $derived((r.sat / 100) * Math.cos((r.tono * Math.PI) / 180));
-  const py = $derived((r.sat / 100) * Math.sin((r.tono * Math.PI) / 180));
+  const px = $derived(radio(r.sat) * Math.cos((r.tono * Math.PI) / 180));
+  const py = $derived(radio(r.sat) * Math.sin((r.tono * Math.PI) / 180));
 
   function color(x: Rueda): string {
     return x.sat === 0 ? 'var(--panel-2)' : `hsl(${x.tono} ${Math.max(25, x.sat)}% 55%)`;
@@ -43,11 +48,15 @@
     const b = rueda!.getBoundingClientRect();
     const dx = (e.clientX - b.left) / (b.width / 2) - 1;
     const dy = 1 - (e.clientY - b.top) / (b.height / 2);
-    const sat = Math.min(1, Math.hypot(dx, dy));
-    // Cerca del centro, sin color (es fácil volver a cero).
-    if (sat < 0.06) return onrueda(zona, { ...r, sat: 0 });
+    const d = Math.min(1, Math.hypot(dx, dy));
+    if (d < IMAN) {
+      // Al entrar en el centro, una vibración corta (si el teléfono la permite).
+      if (r.sat !== 0) navigator.vibrate?.(8);
+      return onrueda(zona, { ...r, sat: 0 });
+    }
     const tono = ((Math.atan2(dy, dx) * 180) / Math.PI + 360) % 360;
-    onrueda(zona, { ...r, tono: Math.round(tono), sat: Math.round(sat * 100) });
+    const sat = Math.max(1, Math.round(((d - IMAN) / (1 - IMAN)) * 100));
+    onrueda(zona, { ...r, tono: Math.round(tono), sat });
   }
 
   function bajar(e: PointerEvent) {
@@ -152,16 +161,16 @@
     box-shadow: 0 0 0 1px var(--borde);
   }
   .rueda::after {
-    /* El centro: sin color. */
+    /* El centro: la zona que atrae el punto (sin color). */
     content: '';
     position: absolute;
     left: 50%;
     top: 50%;
-    width: 6px;
-    height: 6px;
-    margin: -3px;
+    width: 24%;
+    height: 24%;
+    transform: translate(-50%, -50%);
     border-radius: 50%;
-    background: #fff8;
+    border: 1.5px dashed #fffa;
   }
   .punto {
     position: absolute;
