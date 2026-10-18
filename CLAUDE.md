@@ -109,7 +109,6 @@ En línea: https://nikporras.github.io/revela/ (versión `34d0947`). Cada push a
   - "Probar GPU": diferencia máxima 1/255.
   - Recortar y exportar, guardar en carpeta, compartir y cámara.
   - Memoria al exportar igual que al abrir (unos 180 MB).
-
 - **Zoom en el S25 (18 de octubre):** pellizco fluido, zona nítida al soltar, sliders bien con zoom y asas de recorte bien con zoom.
 
 ### Falta probar
@@ -121,7 +120,7 @@ En línea: https://nikporras.github.io/revela/ (versión `34d0947`). Cada push a
 
 Pestañas: **Recortar · Filtros · Editar**. Editar tiene las secciones **Luz, Color, Efectos y Curvas** (como Lightroom móvil).
 
-1. **Color:** HSL (8 colores × tono, saturación y luminancia) y gradación (sombras, medios, luces, global, mezcla y balance). Junto con la nueva estructura de pestañas.
+1. **Color** (hecho, falta probar en el S25): HSL (8 colores × tono, saturación y luminancia) y gradación (sombras, medios, luces, global, mezcla y balance), con la nueva estructura de pestañas.
 2. **Viñeta** (Efectos), sobre el encuadre final. Copiar la fórmula del motor en Revela con coordenadas globales y comprobarla contra el motor.
 3. **Grano** (Efectos). El ruido lo calcula el motor como textura; es aproximado a tamaño de pantalla y exacto al 100 %, con la nota "Míralo al 100 % (doble toque)".
 4. **Volver a traducir los filtros de LightCraft:** vuelven 6 de los 16 excluidos (los que dependen de viñeta y grano).
