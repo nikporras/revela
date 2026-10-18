@@ -106,6 +106,19 @@ locales; exportar 12 MP con el comando entero gasta 770 MB. Por eso:
 - La prueba de igualdad incluye 6 encuadres cruzados con 5 recetas (332 comparaciones, máx.
   1/255, sin píxeles de borde distintos).
 
+## Pestañas y color
+
+- **Pestañas:** Recortar · Filtros · Editar. Editar tiene las secciones Luz (exposición, contraste, luces y sombras), Color, Efectos y Curvas, como Lightroom móvil.
+- **Color:** temperatura, tinte, vibrancia y saturación, más dos paneles:
+  - **Mezcla:** los 8 colores del HSL del motor; para cada uno, tono, saturación y luminancia.
+  - **Gradación:** una rueda por zona (sombras, medios, luces, global), con luminancia, mezcla y balance.
+- **Cómo se combinan con el filtro elegido** (`aCameraRaw` en `receta.ts`):
+  - El HSL se suma banda a banda.
+  - Las ruedas se suman como colores (vectores de tono y saturación), así que dos tintes opuestos se anulan.
+  - La mezcla del usuario manda si la ha cambiado (por defecto, 50 como el motor).
+  - El balance se suma.
+- Son etapas por píxel que ya estaban en el shader y en la exportación, y la prueba de igualdad ya las cubría (también en extremos).
+
 ## Zoom
 
 - **Gestos** (`App.svelte`, matemática en `web/src/lib/zoom.ts`):

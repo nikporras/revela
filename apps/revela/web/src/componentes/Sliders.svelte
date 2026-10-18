@@ -1,59 +1,84 @@
 <script lang="ts">
+  // Una fila de botones (un slider cada uno, o un panel) y debajo el control elegido.
+  import type { Snippet } from 'svelte';
   import { SLIDERS, type IdSlider } from '../lib/receta';
 
   let {
+    ids,
     valores,
+    extras = [],
+    panel,
+    activo = $bindable(),
     oncambio,
     onfin,
   }: {
+    /** Los sliders de esta sección, en orden. */
+    ids: IdSlider[];
     valores: Record<IdSlider, number>;
+    /** Botones que abren un panel en vez de un slider (se dibuja con `panel`). */
+    extras?: { id: string; nombre: string; cambiado: boolean }[];
+    panel?: Snippet<[string]>;
+    /** El botón elegido (se recuerda al cambiar de sección). */
+    activo?: string;
     /** Mientras se arrastra (previa en vivo). */
     oncambio: (id: IdSlider, v: number) => void;
     /** Al soltar: un paso de deshacer. */
     onfin: () => void;
   } = $props();
 
-  let activo = $state<IdSlider>('exposicion');
-  const def = $derived(SLIDERS.find((s) => s.id === activo) ?? SLIDERS[0]);
-  const valor = $derived(valores[activo]);
+  const defs = $derived(ids.map((id) => SLIDERS.find((s) => s.id === id)!));
+  const elegido = $derived(activo && (ids.includes(activo as IdSlider) || extras.some((x) => x.id === activo)) ? activo : ids[0]);
+  const def = $derived(defs.find((s) => s.id === elegido));
+  const valor = $derived(def ? valores[def.id] : 0);
 
   function texto(v: number): string {
+    if (!def) return '';
     if (def.formato) return def.formato(v);
     return `${v > 0 ? '+' : ''}${Math.round(v)}`;
   }
 
   function restablecer() {
-    oncambio(activo, 0);
+    if (!def) return;
+    oncambio(def.id, 0);
     onfin();
   }
 </script>
 
 <div class="chips" role="tablist" aria-label="Ajuste">
-  {#each SLIDERS as s (s.id)}
-    <button role="tab" aria-selected={s.id === activo} class:activo={s.id === activo} onclick={() => (activo = s.id)}>
+  {#each defs as s (s.id)}
+    <button role="tab" aria-selected={s.id === elegido} class:activo={s.id === elegido} onclick={() => (activo = s.id)}>
       {s.nombre}{#if valores[s.id] !== 0}<span class="punto" aria-label="(modificado)"></span>{/if}
+    </button>
+  {/each}
+  {#each extras as x (x.id)}
+    <button role="tab" aria-selected={x.id === elegido} class:activo={x.id === elegido} onclick={() => (activo = x.id)}>
+      {x.nombre}{#if x.cambiado}<span class="punto" aria-label="(modificado)"></span>{/if}
     </button>
   {/each}
 </div>
 
-<div class="control">
-  <div class="cabecera">
-    <span>{def.nombre}</span>
-    <b>{texto(valor)}</b>
-    <button class="cero" disabled={valor === 0} onclick={restablecer}>Restablecer</button>
+{#if !def}
+  {@render panel?.(elegido)}
+{:else}
+  <div class="control">
+    <div class="cabecera">
+      <span>{def.nombre}</span>
+      <b>{texto(valor)}</b>
+      <button class="cero" disabled={valor === 0} onclick={restablecer}>Restablecer</button>
+    </div>
+    <input
+      type="range"
+      aria-label={def.nombre}
+      min={def.min}
+      max={def.max}
+      step={def.paso}
+      value={valor}
+      style="--cero: {((0 - def.min) / (def.max - def.min)) * 100}%"
+      oninput={(e) => oncambio(def.id, Number((e.currentTarget as HTMLInputElement).value))}
+      onchange={onfin}
+    />
   </div>
-  <input
-    type="range"
-    aria-label={def.nombre}
-    min={def.min}
-    max={def.max}
-    step={def.paso}
-    value={valor}
-    style="--cero: {((0 - def.min) / (def.max - def.min)) * 100}%"
-    oninput={(e) => oncambio(activo, Number((e.currentTarget as HTMLInputElement).value))}
-    onchange={onfin}
-  />
-</div>
+{/if}
 
 <style>
   .chips {

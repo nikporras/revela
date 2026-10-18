@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import Sliders from './componentes/Sliders.svelte';
-  import Curvas from './componentes/Curvas.svelte';
+  import Editar, { type Seccion } from './componentes/Editar.svelte';
   import Filtros from './componentes/Filtros.svelte';
   import PanelRecorte from './componentes/PanelRecorte.svelte';
   import MarcoRecorte from './componentes/MarcoRecorte.svelte';
@@ -26,7 +25,7 @@
   import { carpetaRecordada, guardarEnCarpeta, nombreBase as elegirNombreBase, soportaCarpeta } from './lib/guardar';
   import { Revelador, hayWebGL2, type ParametrosGpu, type PlanoGpu } from './lib/gpu';
   import { FILTROS, recetasDeFiltros, type Filtro } from './lib/filtros';
-  import { aCameraRaw, esVacia, recetaVacia, type Canal, type IdSlider, type Punto, type Receta } from './lib/receta';
+  import { aCameraRaw, esVacia, recetaVacia, type Canal, type CanalHsl, type IdRueda, type IdSlider, type Punto, type Receta, type Rueda } from './lib/receta';
   import { probar, recetasDePrueba, TOLERANCIA, type MotorDePrueba } from './lib/autoprueba';
   import type { FormatoExport, InfoFoto, Previa } from './lib/protocolo';
   import {
@@ -44,7 +43,7 @@
   } from './lib/plataforma';
 
   type Estado = 'cargando' | 'vacio' | 'abriendo' | 'lista' | 'exportando';
-  type Pestana = 'recortar' | 'filtros' | 'ajustes' | 'curvas';
+  type Pestana = 'recortar' | 'filtros' | 'editar';
 
   interface Diagnostico {
     cargaInicial?: number;
@@ -103,7 +102,8 @@
   let receta = $state<Receta>(recetaVacia());
   let historial = $state<Receta[]>([recetaVacia()]);
   let posicion = $state(0);
-  let pestana = $state<Pestana>('ajustes');
+  let pestana = $state<Pestana>('editar');
+  let seccion = $state<Seccion>('luz');
   let comparando = $state(false);
   /** Curvas calculadas por el motor (para dibujarlas en el editor). */
   let luts = $state<Float32Array | null>(null);
@@ -321,6 +321,26 @@
 
   function cambiarCurva(canal: Canal, puntos: Punto[]) {
     receta.curvas[canal] = puntos;
+    aplicar();
+  }
+
+  function cambiarHsl(canal: CanalHsl, banda: number, v: number) {
+    receta.hsl[canal][banda] = v;
+    aplicar();
+  }
+
+  function cambiarRueda(id: IdRueda, r: Rueda) {
+    receta.gradacion.ruedas[id] = r;
+    aplicar();
+  }
+
+  function cambiarMezcla(v: number) {
+    receta.gradacion.mezcla = v;
+    aplicar();
+  }
+
+  function cambiarBalance(v: number) {
+    receta.gradacion.balance = v;
     aplicar();
   }
 
@@ -954,7 +974,7 @@
   {#if info}
     <section class="panel">
       <div class="pestanas" role="tablist">
-        {#each [['recortar', 'Recortar'], ['filtros', 'Filtros'], ['ajustes', 'Ajustes'], ['curvas', 'Curvas']] as [id, nombre] (id)}
+        {#each [['recortar', 'Recortar'], ['filtros', 'Filtros'], ['editar', 'Editar']] as [id, nombre] (id)}
           <button role="tab" aria-selected={pestana === id} class:activa={pestana === id} onclick={() => cambiarPestana(id as Pestana)}>{nombre}</button>
         {/each}
       </div>
@@ -972,10 +992,19 @@
             onlinea={() => (modoLinea = !modoLinea)}
             onrestablecer={restablecerGeometria}
           />
-        {:else if pestana === 'ajustes'}
-          <Sliders valores={receta.sliders} oncambio={cambiarSlider} onfin={confirmar} />
-        {:else if pestana === 'curvas'}
-          <Curvas curvas={receta.curvas} {luts} oncambio={cambiarCurva} onfin={confirmar} />
+        {:else if pestana === 'editar'}
+          <Editar
+            {receta}
+            {luts}
+            bind:seccion
+            oncambio={cambiarSlider}
+            oncurva={cambiarCurva}
+            onhsl={cambiarHsl}
+            onrueda={cambiarRueda}
+            onmezcla={cambiarMezcla}
+            onbalance={cambiarBalance}
+            onfin={confirmar}
+          />
         {:else}
           <Filtros filtro={receta.filtro} {claveFoto} dibujarMiniatura={baseMini ? dibujarMiniatura : null} oncambio={cambiarFiltro} onfin={confirmar} />
         {/if}

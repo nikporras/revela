@@ -28,6 +28,43 @@ export const SLIDERS: DefSlider[] = [
   { id: 'vibrancia', nombre: 'Vibrancia', min: -100, max: 100, paso: 1 },
 ];
 
+/** Las secciones de Editar donde va cada slider. */
+export const LUZ: IdSlider[] = ['exposicion', 'contraste', 'luces', 'sombras'];
+export const COLOR: IdSlider[] = ['temperatura', 'tinte', 'vibrancia', 'saturacion'];
+
+/** Las 8 bandas del HSL del motor (centro en grados), en su orden. */
+export const BANDAS = [
+  { nombre: 'Rojo', tono: 0 },
+  { nombre: 'Naranja', tono: 30 },
+  { nombre: 'Amarillo', tono: 60 },
+  { nombre: 'Verde', tono: 120 },
+  { nombre: 'Aguamarina', tono: 180 },
+  { nombre: 'Azul', tono: 240 },
+  { nombre: 'Morado', tono: 270 },
+  { nombre: 'Magenta', tono: 300 },
+];
+
+export type CanalHsl = 'tono' | 'saturacion' | 'luminancia';
+
+/** Una rueda de la gradación: tono 0..360, saturación 0..100, luminancia −100..100. */
+export interface Rueda {
+  tono: number;
+  sat: number;
+  lum: number;
+}
+
+export type IdRueda = 'sombras' | 'medios' | 'luces' | 'global';
+
+export interface Gradacion {
+  ruedas: Record<IdRueda, Rueda>;
+  /** 0..100 (50 por defecto, como el motor). */
+  mezcla: number;
+  /** −100..100. */
+  balance: number;
+}
+
+export const MEZCLA_DEFECTO = 50;
+
 export type Punto = [number, number];
 export type Canal = 'master' | 'red' | 'green' | 'blue';
 
@@ -37,6 +74,9 @@ export interface Receta {
   curvas: Record<Canal, Punto[]>;
   filtro: { id: string; intensidad: number } | null;
   geometria: Geometria;
+  /** Mezcla de color: 8 valores por canal (−100..100). */
+  hsl: Record<CanalHsl, number[]>;
+  gradacion: Gradacion;
 }
 
 export const DIAGONAL: Punto[] = [
@@ -50,7 +90,27 @@ export function recetaVacia(): Receta {
     curvas: { master: DIAGONAL, red: DIAGONAL, green: DIAGONAL, blue: DIAGONAL },
     filtro: null,
     geometria: geometriaVacia(),
+    hsl: { tono: ceros(), saturacion: ceros(), luminancia: ceros() },
+    gradacion: gradacionVacia(),
   };
+}
+
+const ceros = () => Array.from({ length: 8 }, () => 0);
+
+export const ruedaVacia = (): Rueda => ({ tono: 0, sat: 0, lum: 0 });
+
+export function gradacionVacia(): Gradacion {
+  return { ruedas: { sombras: ruedaVacia(), medios: ruedaVacia(), luces: ruedaVacia(), global: ruedaVacia() }, mezcla: MEZCLA_DEFECTO, balance: 0 };
+}
+
+export const esRuedaNeutra = (r: Rueda) => r.sat === 0 && r.lum === 0;
+
+export function esHslNeutro(h: Receta['hsl']): boolean {
+  return Object.values(h).every((v) => v.every((x) => x === 0));
+}
+
+export function esGradacionNeutra(g: Gradacion): boolean {
+  return Object.values(g.ruedas).every(esRuedaNeutra) && g.mezcla === MEZCLA_DEFECTO && g.balance === 0;
 }
 
 export function esCurvaNeutra(c: Punto[]): boolean {
@@ -58,18 +118,22 @@ export function esCurvaNeutra(c: Punto[]): boolean {
 }
 
 export function esVacia(r: Receta): boolean {
-  return Object.values(r.sliders).every((v) => v === 0) && Object.values(r.curvas).every(esCurvaNeutra) && !r.filtro && esGeometriaVacia(r.geometria);
+  return Object.values(r.sliders).every((v) => v === 0) && Object.values(r.curvas).every(esCurvaNeutra) && !r.filtro && esGeometriaVacia(r.geometria) && esHslNeutro(r.hsl) && esGradacionNeutra(r.gradacion);
 }
 
 type Ajustes = Record<string, unknown>;
 
 const ESCALARES = ['exposure', 'contrast', 'temperature', 'tint', 'saturation', 'vibrance', 'curveShadows', 'curveDarks', 'curveLights', 'curveHighlights'];
 const LIMITE: Record<string, number> = { exposure: 5 };
+const CLAVE_HSL: Record<CanalHsl, string> = { tono: 'hslHue', saturacion: 'hslSat', luminancia: 'hslLum' };
+const CLAVE_RUEDA: Record<IdRueda, string> = { sombras: 'gradeShadows', medios: 'gradeMidtones', luces: 'gradeHighlights', global: 'gradeGlobal' };
 const CLAVE_CURVA: Record<Canal, string> = { master: 'pointCurve', red: 'pointCurveRed', green: 'pointCurveGreen', blue: 'pointCurveBlue' };
 
 /**
  * Los ajustes de Camera Raw para la receta: los del filtro elegido escalados por su intensidad,
  * más los sliders del usuario encima. Las curvas del usuario mandan; si no hay, las del filtro.
+ * El HSL se suma banda a banda; las ruedas de gradación se suman como colores (vectores de tono
+ * y saturación), y la mezcla del usuario manda si la ha cambiado.
  */
 export function aCameraRaw(r: Receta, filtros: Filtro[]): Ajustes {
   const out: Ajustes = {};
@@ -99,10 +163,37 @@ export function aCameraRaw(r: Receta, filtros: Filtro[]): Ajustes {
   sumar('vibrance', s.vibrancia);
   for (const [clave, k] of Object.entries(TONO.sombras)) sumar(clave, s.sombras * k);
   for (const [clave, k] of Object.entries(TONO.luces)) sumar(clave, s.luces * k);
+  const lim = (v: number, a: number) => Math.max(-a, Math.min(a, v));
+  for (const canal of Object.keys(CLAVE_HSL) as CanalHsl[]) {
+    const u = r.hsl[canal];
+    if (u.every((x) => x === 0)) continue;
+    const f = (out[CLAVE_HSL[canal]] as number[] | undefined) ?? ceros();
+    out[CLAVE_HSL[canal]] = f.map((x, i) => lim(x + u[i], 100));
+  }
+  for (const id of Object.keys(CLAVE_RUEDA) as IdRueda[]) {
+    const u = r.gradacion.ruedas[id];
+    if (esRuedaNeutra(u)) continue;
+    const f = (out[CLAVE_RUEDA[id]] as { hue: number; sat: number; lum: number } | undefined) ?? { hue: 0, sat: 0, lum: 0 };
+    out[CLAVE_RUEDA[id]] = sumarRuedas(f, u);
+  }
+  const g = r.gradacion;
+  if (g.mezcla !== MEZCLA_DEFECTO) out.gradeBlending = g.mezcla;
+  if (g.balance !== 0) out.gradeBalance = lim(((out.gradeBalance as number) ?? 0) + g.balance, 100);
   for (const canal of Object.keys(CLAVE_CURVA) as Canal[]) {
     if (!esCurvaNeutra(r.curvas[canal])) out[CLAVE_CURVA[canal]] = r.curvas[canal];
   }
   // Quita los ceros: una receta vacía es "{}".
-  for (const [k, v] of Object.entries(out)) if (v === 0) delete out[k];
+  // (La mezcla no: su valor por defecto es 50.)
+  for (const [k, v] of Object.entries(out)) if (v === 0 && k !== 'gradeBlending') delete out[k];
   return out;
+}
+
+/** Dos tintes de gradación sumados como colores: la saturación es la longitud del vector. */
+export function sumarRuedas(f: { hue: number; sat: number; lum: number }, u: Rueda): { hue: number; sat: number; lum: number } {
+  const rad = Math.PI / 180;
+  const x = f.sat * Math.cos(f.hue * rad) + u.sat * Math.cos(u.tono * rad);
+  const y = f.sat * Math.sin(f.hue * rad) + u.sat * Math.sin(u.tono * rad);
+  const sat = Math.min(100, Math.hypot(x, y));
+  const hue = sat > 1e-6 ? ((Math.atan2(y, x) / rad) % 360 + 360) % 360 : u.tono;
+  return { hue: Math.round(hue * 100) / 100, sat: Math.round(sat * 100) / 100, lum: Math.max(-100, Math.min(100, f.lum + u.lum)) };
 }
