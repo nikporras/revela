@@ -577,7 +577,8 @@
   let directo = $state<CanalHsl | null>(null);
   let bandaMezcla = $state(0);
   interface Color {
-    texto: string;
+    /** Los colores de la mezcla que tocan este, con su parte (%); vacío si es gris. */
+    partes: { banda: number; pct: number }[];
     css: string;
     pesos: number[];
     norma: number;
@@ -608,6 +609,8 @@
     }
   }
 
+  const bandaTocada = (k: number) => receta.hsl.tono[k] !== 0 || receta.hsl.saturacion[k] !== 0 || receta.hsl.luminancia[k] !== 0;
+
   /** El punto de la previa (píxeles del lienzo) bajo una posición de la pantalla. */
   function puntoPrevia(cx: number, cy: number): [number, number] | null {
     const l = lienzoVisible();
@@ -634,13 +637,13 @@
     }
     const css = `rgb(${rgb.map((c) => Math.round(c * 255)).join(' ')})`;
     const [h, sat] = tonoYSaturacion(...rgb);
-    if (sat < 0.08) return { texto: 'Gris: elige una zona con color', css, pesos: [], norma: 0 };
+    if (sat < 0.08) return { partes: [], css, pesos: [], norma: 0 };
     const pesos = pesosBandas(h);
     const orden = pesos.map((w, k) => [w, k]).filter(([w]) => w > 0.05).sort((a, b) => b[0] - a[0]);
     const total = orden.reduce((a, [w]) => a + w, 0) || 1;
     bandaMezcla = orden[0][1];
     return {
-      texto: orden.map(([w, k]) => `${BANDAS[k].nombre} ${Math.round((w / total) * 100)} %`).join(' · '),
+      partes: orden.map(([w, k]) => ({ banda: k, pct: Math.round((w / total) * 100) })),
       css,
       pesos,
       norma: pesos.reduce((a, w) => a + w * w, 0),
@@ -1147,7 +1150,15 @@
     {#if info && directo && pestana === 'editar' && !comparando}
       <div class="etiqueta directo" role="status">
         {#if fijado}
-          <span class="muestra" style:background={fijado.css}></span>{fijado.texto}{#if fijado.pesos.length && !lupa}&nbsp;· arrastra ↕{/if}
+          <span class="muestra" style:background={fijado.css}></span>
+          <span>{#if !fijado.partes.length}
+            Gris: elige una zona con color
+          {:else}
+            <!-- Un punto naranja: ese color ya tiene cambios en la mezcla (la lupa enseña la foto
+                 como se ve, pero la detección usa el color original, como Lightroom). -->
+            {#each fijado.partes as p, i (p.banda)}{#if i > 0}&nbsp;·&nbsp;{/if}{BANDAS[p.banda].nombre}{#if bandaTocada(p.banda)}<span class="tocada" aria-label="(con cambios)">•</span>{/if}&nbsp;{p.pct} %{/each}
+            {#if !lupa}&nbsp;· arrastra ↕{/if}
+          {/if}</span>
         {:else}
           Mantén pulsado para la lupa, o arrastra ↕
         {/if}
@@ -1437,6 +1448,11 @@
     max-width: calc(100% - 32px);
     white-space: nowrap;
     font-size: 13px;
+  }
+  .tocada {
+    color: var(--acento);
+    font-weight: 700;
+    margin-left: 2px;
   }
   .etiqueta .muestra {
     flex: none;
