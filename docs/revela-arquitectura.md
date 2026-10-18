@@ -110,7 +110,10 @@ locales; exportar 12 MP con el comando entero gasta 770 MB. Por eso:
 
 - **Pestañas:** Recortar · Filtros · Editar. Editar tiene las secciones Luz (exposición, contraste, luces y sombras), Color, Efectos y Curvas, como Lightroom móvil.
 - **Color:** temperatura, tinte, vibrancia y saturación, más dos paneles:
-  - **Mezcla:** los 8 colores del HSL del motor; para cada uno, tono, saturación y luminancia.
+  - **Mezcla:** los 8 colores del HSL del motor; para cada uno, tono, saturación y luminancia, con las barras pintadas con el color real (el tono va de un color vecino al otro).
+    - **Sobre la foto:** se toca un color en la foto y se arrastra en vertical; se elige qué cambia (tono, saturación o luminancia).
+    - El color se mira sin la mezcla ni la gradación (`Revelador.muestra`), que es lo que ve el HSL del motor.
+    - El cambio se reparte entre los colores vecinos con los pesos del motor (`pesosBandas`), normalizados para que el punto tocado cambie justo lo arrastrado.
   - **Gradación:** una rueda por zona (sombras, medios, luces, global), con luminancia, mezcla y balance.
 - **Cómo se combinan con el filtro elegido** (`aCameraRaw` en `receta.ts`):
   - El HSL se suma banda a banda.
@@ -118,6 +121,10 @@ locales; exportar 12 MP con el comando entero gasta 770 MB. Por eso:
   - La mezcla del usuario manda si la ha cambiado (por defecto, 50 como el motor).
   - El balance se suma.
 - Son etapas por píxel que ya estaban en el shader y en la exportación, y la prueba de igualdad ya las cubría (también en extremos).
+
+## Barra de arriba
+
+Con una foto abierta no hay botones abajo: arriba van los iconos de abrir (galería y cámara), deshacer, quitar todo, rehacer, información y exportar. Los botones grandes solo están en la pantalla inicial.
 
 ## Zoom
 

@@ -25,7 +25,7 @@
   import { carpetaRecordada, guardarEnCarpeta, nombreBase as elegirNombreBase, soportaCarpeta } from './lib/guardar';
   import { Revelador, hayWebGL2, type ParametrosGpu, type PlanoGpu } from './lib/gpu';
   import { FILTROS, recetasDeFiltros, type Filtro } from './lib/filtros';
-  import { aCameraRaw, esVacia, recetaVacia, type Canal, type CanalHsl, type IdRueda, type IdSlider, type Punto, type Receta, type Rueda } from './lib/receta';
+  import { BANDAS, aCameraRaw, esVacia, pesosBandas, recetaVacia, tonoYSaturacion, type Canal, type CanalHsl, type IdRueda, type IdSlider, type Punto, type Receta, type Rueda } from './lib/receta';
   import { probar, recetasDePrueba, TOLERANCIA, type MotorDePrueba } from './lib/autoprueba';
   import type { FormatoExport, InfoFoto, Previa } from './lib/protocolo';
   import {
@@ -284,6 +284,7 @@
     const antes = pestana;
     pestana = p;
     modoLinea = false;
+    if (p !== 'editar') directo = null;
     // Entrar o salir de Recortar cambia lo que se dibuja (marco entero / recortado).
     if ((antes === 'recortar') !== (p === 'recortar')) aplicar();
   }
@@ -443,11 +444,21 @@
       capturar(e.pointerId);
       if (punteros.size === 2) {
         marcoRecorte?.cancelar();
+        soltarDirecto();
         clearTimeout(temporizador);
         soltar();
         toque = null;
         empezarPellizco();
       }
+      return;
+    }
+    // Ajuste de color sobre la foto: el dedo elige el color y lo ajusta (sin arrastre, sin
+    // comparar, sin doble toque).
+    if (directo && pestana === 'editar') {
+      e.stopPropagation();
+      capturar(e.pointerId);
+      toque = null;
+      empezarDirecto(e);
       return;
     }
     const asa = !!(e.target as HTMLElement).dataset?.asa;
@@ -468,6 +479,11 @@
     if (!punteros.has(e.pointerId)) return;
     const p = pos(e);
     punteros.set(e.pointerId, p);
+    if (arrastreDirecto && punteros.size === 1) {
+      e.stopPropagation();
+      moverDirecto(e);
+      return;
+    }
     if (toque && !toque.movido && Math.hypot(p.x - toque.x, p.y - toque.y) > 8) {
       toque.movido = true;
       clearTimeout(temporizador);
@@ -501,6 +517,7 @@
     }
     if (punteros.size > 0) return;
     gesto = null;
+    soltarDirecto();
     soltar();
     if (habia) programarDetalle();
     // Doble toque: alterna entre ajustar a pantalla y 100 %.
@@ -543,6 +560,74 @@
     void [vista.z, vista.x, vista.y];
     medirCaja();
   });
+
+  // --- Mezcla de color sobre la foto ---------------------------------------------------
+  //
+  // Se toca un color en la foto y se arrastra en vertical (arriba: más). Se mira el color sin la
+  // mezcla ni la gradación (lo que ve el HSL del motor) y el cambio se reparte entre los colores
+  // vecinos con los mismos pesos que el motor, normalizados para que el punto tocado cambie
+  // justo lo que se arrastra.
+
+  /** Canal que cambia el arrastre, o `null` si el ajuste sobre la foto está apagado. */
+  let directo = $state<CanalHsl | null>(null);
+  let bandaMezcla = $state(0);
+  /** Lo que se detectó bajo el dedo, para mostrarlo sobre la foto. */
+  let deteccion = $state<{ texto: string; color: string } | null>(null);
+  let arrastreDirecto: { y0: number; pesos: number[]; norma: number; inicio: number[]; canal: CanalHsl } | null = null;
+
+  function ponerDirecto(c: CanalHsl | null) {
+    directo = c;
+    if (!c) deteccion = null;
+  }
+
+  function colorBajo(e: PointerEvent): [number, number, number] | null {
+    const l = lienzoVisible();
+    if (!l) return null;
+    const r = l.getBoundingClientRect();
+    const u = (e.clientX - r.left) / r.width;
+    const v = (e.clientY - r.top) / r.height;
+    if (u < 0 || u > 1 || v < 0 || v > 1) return null;
+    const [x, y] = [Math.floor(u * l.width), Math.floor(v * l.height)];
+    if (usarGpu && revelador) return revelador.muestra(comparando ? null : ultimosParams, ultimoPlano, x, y);
+    // Sin GPU: lo que se ve (con la mezcla puesta; es una aproximación).
+    const d = l.getContext('2d')?.getImageData(Math.max(0, x - 2), Math.max(0, y - 2), 5, 5).data;
+    if (!d) return null;
+    const suma = [0, 0, 0];
+    for (let i = 0; i < d.length; i += 4) for (let c = 0; c < 3; c++) suma[c] += d[i + c];
+    return suma.map((s) => s / (d.length / 4) / 255) as [number, number, number];
+  }
+
+  function empezarDirecto(e: PointerEvent) {
+    const rgb = colorBajo(e);
+    if (!rgb || !directo) return;
+    const css = `rgb(${rgb.map((c) => Math.round(c * 255)).join(' ')})`;
+    const [h, sat] = tonoYSaturacion(...rgb);
+    if (sat < 0.08) {
+      deteccion = { texto: 'Gris: toca una zona con color', color: css };
+      return;
+    }
+    const pesos = pesosBandas(h);
+    const norma = pesos.reduce((a, w) => a + w * w, 0);
+    const orden = pesos.map((w, k) => [w, k]).filter(([w]) => w > 0.05).sort((a, b) => b[0] - a[0]);
+    bandaMezcla = orden[0][1];
+    deteccion = { texto: orden.map(([w, k]) => `${BANDAS[k].nombre} ${Math.round((w / (orden.reduce((a, [x]) => a + x, 0) || 1)) * 100)} %`).join(' · '), color: css };
+    arrastreDirecto = { y0: e.clientY, pesos, norma, inicio: [...receta.hsl[directo]], canal: directo };
+  }
+
+  function moverDirecto(e: PointerEvent) {
+    const a = arrastreDirecto;
+    if (!a) return;
+    // 200 px de arrastre = 100.
+    const d = (a.y0 - e.clientY) / 2;
+    receta.hsl[a.canal] = a.inicio.map((v, k) => Math.max(-100, Math.min(100, Math.round(v + (d * a.pesos[k]) / a.norma))));
+    aplicar();
+  }
+
+  function soltarDirecto() {
+    if (!arrastreDirecto) return;
+    arrastreDirecto = null;
+    confirmar();
+  }
 
   // --- Zona nítida del zoom ---
 
@@ -883,8 +968,20 @@
 </script>
 
 <main>
-  <header>
-    <span class="marca">Revela</span>
+  <header class:con-foto={!!info}>
+    {#if info}
+      <!-- Con una foto abierta, todo va arriba en iconos para dejar sitio a la foto. -->
+      <div class="herramientas">
+        <button class="icono" aria-label="Abrir otra foto de la galería" disabled={ocupado} onclick={() => entradaGaleria?.click()}>
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5" /><circle cx="9" cy="10" r="1.8" /><path d="m21 16-5-5-9 9" /></svg>
+        </button>
+        <button class="icono" aria-label="Tomar una foto con la cámara" disabled={ocupado} onclick={() => entradaCamara?.click()}>
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" /><circle cx="12" cy="13" r="3.5" /></svg>
+        </button>
+      </div>
+    {:else}
+      <span class="marca">Revela</span>
+    {/if}
     <div class="herramientas">
       {#if info}
         <button class="icono" aria-label="Deshacer" disabled={posicion === 0} onclick={() => irA(posicion - 1)}>
@@ -902,6 +999,11 @@
           <circle cx="12" cy="12" r="9.5" /><path d="M12 11v6" /><circle cx="12" cy="7.5" r="0.6" fill="currentColor" />
         </svg>
       </button>
+      {#if info}
+        <button class="icono exportar" aria-label="Exportar o compartir" disabled={ocupado} onclick={abrirExportar}>
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3" /><path d="m7 8 5-5 5 5" /><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" /></svg>
+        </button>
+      {/if}
     </div>
   </header>
 
@@ -947,6 +1049,11 @@
       </div>
     {/if}
     {#if comparando}<div class="etiqueta">Original</div>{/if}
+    {#if info && directo && pestana === 'editar' && !comparando}
+      <div class="etiqueta directo" role="status">
+        {#if deteccion}<span class="muestra" style:background={deteccion.color}></span>{deteccion.texto}{:else}Toca un color y arrastra ↕{/if}
+      </div>
+    {/if}
     {#if ocupado && estado !== 'cargando'}
       <div class="cargando">{estado === 'abriendo' ? 'Abriendo…' : 'Exportando…'}</div>
     {/if}
@@ -997,6 +1104,9 @@
             {receta}
             {luts}
             bind:seccion
+            bind:bandaMezcla
+            {directo}
+            ondirecto={ponerDirecto}
             oncambio={cambiarSlider}
             oncurva={cambiarCurva}
             onhsl={cambiarHsl}
@@ -1012,11 +1122,13 @@
     </section>
   {/if}
 
-  <nav class="barra">
-    <button class="boton" disabled={ocupado} onclick={() => entradaGaleria?.click()}>Galería</button>
-    <button class="boton" disabled={ocupado} onclick={() => entradaCamara?.click()}>Cámara</button>
-    <button class="boton principal" disabled={ocupado || !info} onclick={abrirExportar}>Exportar</button>
-  </nav>
+  {#if !info}
+    <!-- Pantalla inicial: botones grandes. Con una foto abierta están arriba, en iconos. -->
+    <nav class="barra">
+      <button class="boton" disabled={ocupado} onclick={() => entradaGaleria?.click()}>Galería</button>
+      <button class="boton" disabled={ocupado} onclick={() => entradaCamara?.click()}>Cámara</button>
+    </nav>
+  {/if}
 
   <input bind:this={entradaGaleria} type="file" accept="image/*" hidden onchange={abrirArchivo} />
   <input bind:this={entradaCamara} type="file" accept="image/*" capture="environment" hidden onchange={abrirArchivo} />
@@ -1119,8 +1231,20 @@
     justify-content: space-between;
     padding: 4px 8px 4px 16px;
   }
+  header.con-foto {
+    padding: 4px 8px;
+  }
   .herramientas {
     display: flex;
+  }
+  .exportar {
+    margin-left: 4px;
+    border-radius: 12px;
+    background: var(--acento);
+    color: var(--fondo);
+  }
+  .exportar:disabled {
+    opacity: 0.5;
   }
   .marca {
     font-weight: 700;
@@ -1187,6 +1311,21 @@
     background: var(--acento);
     transition: width 0.15s linear;
   }
+  .etiqueta.directo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: calc(100% - 32px);
+    white-space: nowrap;
+    font-size: 13px;
+  }
+  .etiqueta .muestra {
+    flex: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1.5px #fff;
+  }
   .etiqueta {
     position: absolute;
     top: 14px;
@@ -1238,7 +1377,7 @@
   .panel {
     background: var(--panel);
     border-radius: 18px 18px 0 0;
-    padding-top: 6px;
+    padding: 6px 0 10px;
   }
   .pestanas {
     display: flex;

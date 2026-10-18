@@ -1,5 +1,8 @@
 <script module lang="ts">
   export type Seccion = 'luz' | 'color' | 'efectos' | 'curvas';
+
+  /** El control elegido en cada sección: se recuerda al ir a otra pestaña y volver. */
+  const elegidos = $state({ luz: 'exposicion', color: 'temperatura' });
 </script>
 
 <script lang="ts">
@@ -27,6 +30,9 @@
     receta,
     luts,
     seccion = $bindable('luz'),
+    bandaMezcla = $bindable(0),
+    directo,
+    ondirecto,
     oncambio,
     oncurva,
     onhsl,
@@ -38,6 +44,9 @@
     receta: Receta;
     luts: Float32Array | null;
     seccion?: Seccion;
+    bandaMezcla?: number;
+    directo: CanalHsl | null;
+    ondirecto: (c: CanalHsl | null) => void;
     oncambio: (id: IdSlider, v: number) => void;
     oncurva: (canal: Canal, puntos: Punto[]) => void;
     onhsl: (canal: CanalHsl, banda: number, v: number) => void;
@@ -46,10 +55,6 @@
     onbalance: (v: number) => void;
     onfin: () => void;
   } = $props();
-
-  /** El control elegido en cada sección (se recuerda al ir y volver). */
-  let activoLuz = $state<string>('exposicion');
-  let activoColor = $state<string>('temperatura');
 
   const s = $derived(receta.sliders);
   const SECCIONES: { id: Seccion; nombre: string; cambiada: () => boolean }[] = [
@@ -69,12 +74,12 @@
 </div>
 
 {#if seccion === 'luz'}
-  <Sliders ids={LUZ} valores={s} bind:activo={activoLuz} {oncambio} {onfin} />
+  <Sliders ids={LUZ} valores={s} bind:activo={elegidos.luz} {oncambio} {onfin} />
 {:else if seccion === 'color'}
   <Sliders
     ids={COLOR}
     valores={s}
-    bind:activo={activoColor}
+    bind:activo={elegidos.color}
     extras={[
       { id: 'mezcla', nombre: 'Mezcla', cambiado: !esHslNeutro(receta.hsl) },
       { id: 'gradacion', nombre: 'Gradación', cambiado: !esGradacionNeutra(receta.gradacion) },
@@ -84,7 +89,7 @@
   >
     {#snippet panel(id)}
       {#if id === 'mezcla'}
-        <Mezcla hsl={receta.hsl} oncambio={onhsl} {onfin} />
+        <Mezcla hsl={receta.hsl} bind:banda={bandaMezcla} {directo} {ondirecto} oncambio={onhsl} {onfin} />
       {:else if id === 'gradacion'}
         <Gradacion gradacion={receta.gradacion} {onrueda} {onmezcla} {onbalance} {onfin} />
       {/if}
