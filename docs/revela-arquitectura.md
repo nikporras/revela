@@ -131,7 +131,7 @@ locales; exportar 12 MP con el comando entero gasta 770 MB. Por eso:
 ## Sliders
 
 Todos los sliders con valor neutro (Luz, Color, Mezcla, Gradación, Enderezar) usan `use:iman` (`lib/iman.ts`):
-- Cerca del neutro se pegan a él (1,5 % del recorrido; 0,4° en Enderezar), con una vibración corta.
+- Al llegar cerca del neutro (1 % del recorrido; 0,4° en Enderezar), o al pasarlo de largo, se pegan a él con una vibración corta. Saliendo desde el neutro no hay imán, así que valores pequeños como 1, 2 o 3 se pueden poner.
 - Un doble toque los devuelve al neutro.
 
 ## Actualizaciones
