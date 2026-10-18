@@ -2,6 +2,7 @@
   // Una fila de botones (un slider cada uno, o un panel) y debajo el control elegido.
   import type { Snippet } from 'svelte';
   import { SLIDERS, type IdSlider } from '../lib/receta';
+  import { iman } from '../lib/iman';
 
   let {
     ids,
@@ -68,6 +69,7 @@
     </div>
     <input
       type="range"
+      use:iman
       aria-label={def.nombre}
       min={def.min}
       max={def.max}

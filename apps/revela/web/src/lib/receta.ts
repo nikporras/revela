@@ -63,8 +63,28 @@ export function pesosBandas(h: number): number[] {
   });
 }
 
-/** Tono (grados) y saturación (0..1, la de HSV como el motor) de un color 0..1. */
-export function tonoYSaturacion(r: number, g: number, b: number): [number, number] {
+/**
+ * Cómo llamaría una persona a un color que el HSL clasifica en la banda `banda` (para decir
+ * por qué un marrón cuenta como naranja): `null` si el nombre de la banda ya basta. `s` y `v`
+ * son la saturación y el brillo de HSV (0..1).
+ */
+export function matiz(banda: number, s: number, v: number): string | null {
+  const nombre = BANDAS[banda].nombre;
+  const calido = ['Rojo', 'Naranja', 'Amarillo'].includes(nombre);
+  const frio = ['Aguamarina', 'Azul', 'Morado'].includes(nombre);
+  if (v < 0.2) return frio ? 'sombra fría' : calido ? 'sombra cálida' : 'sombra';
+  if (s < 0.3) {
+    if (calido) return v > 0.7 ? 'beige' : 'gris cálido';
+    if (frio) return 'gris frío';
+    return 'apagado';
+  }
+  if (calido && nombre !== 'Amarillo' && v < 0.55) return 'marrón';
+  if (nombre === 'Amarillo' && v < 0.55) return 'oliva';
+  return null;
+}
+
+/** Tono (grados), saturación y brillo (0..1, los de HSV como el motor) de un color 0..1. */
+export function tonoYSaturacion(r: number, g: number, b: number): [number, number, number] {
   const mx = Math.max(r, g, b);
   const mn = Math.min(r, g, b);
   const d = mx - mn;
@@ -74,7 +94,7 @@ export function tonoYSaturacion(r: number, g: number, b: number): [number, numbe
     else if (mx === g) h = 60 * ((b - r) / d + 2);
     else h = 60 * ((r - g) / d + 4);
   }
-  return [h, mx > 1e-9 ? d / mx : 0];
+  return [h, mx > 1e-9 ? d / mx : 0, mx];
 }
 
 /** Una rueda de la gradación: tono 0..360, saturación 0..100, luminancia −100..100. */

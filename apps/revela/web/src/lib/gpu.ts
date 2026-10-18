@@ -335,23 +335,24 @@ export class Revelador {
   }
 
   /**
-   * El color medio (0..1) de un cuadrado de 5×5 px alrededor de `(x, y)` (píxeles de la salida,
+   * El color medio (0..1) de un cuadrado de `lado`×`lado` px alrededor de `(x, y)` (píxeles de la salida,
    * de arriba abajo) **antes** de la mezcla de color y la gradación: lo que el HSL del motor ve
    * como tono. Se dibuja sin esas etapas, se lee y se vuelve a dibujar tal cual, en el mismo
    * fotograma (no se llega a ver).
    */
-  muestra(p: ParametrosGpu | null, plano: PlanoGpu | null, x: number, y: number): [number, number, number] {
+  muestra(p: ParametrosGpu | null, plano: PlanoGpu | null, x: number, y: number, lado = 7): [number, number, number] {
     const gl = this.gl;
     this.dibujar(p ? { ...p, hsl: false, grade: false } : null, plano);
     const [w, h] = this.salida;
-    const x0 = Math.max(0, Math.min(w - 5, Math.round(x) - 2));
-    const y0 = Math.max(0, Math.min(h - 5, h - 1 - Math.round(y) - 2));
-    const px = new Uint8Array(5 * 5 * 4);
-    gl.readPixels(x0, y0, 5, 5, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    const r = (lado - 1) / 2;
+    const x0 = Math.max(0, Math.min(w - lado, Math.round(x) - r));
+    const y0 = Math.max(0, Math.min(h - lado, h - 1 - Math.round(y) - r));
+    const px = new Uint8Array(lado * lado * 4);
+    gl.readPixels(x0, y0, lado, lado, gl.RGBA, gl.UNSIGNED_BYTE, px);
     this.dibujar(p, plano);
     const suma = [0, 0, 0];
-    for (let i = 0; i < 25; i++) for (let c = 0; c < 3; c++) suma[c] += px[i * 4 + c];
-    return suma.map((v) => v / 25 / 255) as [number, number, number];
+    for (let i = 0; i < lado * lado; i++) for (let c = 0; c < 3; c++) suma[c] += px[i * 4 + c];
+    return suma.map((v) => v / (lado * lado) / 255) as [number, number, number];
   }
 
   /** Lo que hay dibujado, RGBA8 de arriba abajo (como la previa del motor). */
