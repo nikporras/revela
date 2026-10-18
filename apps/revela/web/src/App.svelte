@@ -1138,6 +1138,9 @@
     min-height: 0;
     position: relative;
     display: grid;
+    /* Una celda con el alto de la sección: así el max-height: 100% de la foto se cumple y una
+       foto vertical no se mete debajo del panel. */
+    grid-template: minmax(0, 1fr) / minmax(0, 1fr);
     place-items: center;
     padding: 4px 16px;
     touch-action: none;
