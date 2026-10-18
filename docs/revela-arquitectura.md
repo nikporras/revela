@@ -134,6 +134,13 @@ Todos los sliders con valor neutro (Luz, Color, Mezcla, Gradación, Enderezar) u
 - Cerca del neutro se pegan a él (1,5 % del recorrido; 0,4° en Enderezar), con una vibración corta.
 - Un doble toque los devuelve al neutro.
 
+## Actualizaciones
+
+- El service worker está en modo `prompt` (`src/lib/actualizar.ts`): la versión nueva se descarga sola pero espera.
+- Sale el aviso "Nueva versión de Revela disponible · Actualizar" y la página se recarga solo cuando el usuario lo toca, para no perder una edición a medias. Si hay cambios sin exportar, el aviso lo advierte.
+- También se busca al volver a la app y a mano en ⓘ (Buscar actualización / Actualizar ahora).
+- La activación (mensaje `SKIP_WAITING` y recarga en `controllerchange`) se hace a mano: la de `registerSW` solo recarga si fue ella quien encontró la versión.
+
 ## Barra de arriba
 
 Con una foto abierta no hay botones abajo: arriba van los iconos de abrir (galería y cámara), deshacer, quitar todo, rehacer, información y exportar. Los botones grandes solo están en la pantalla inicial.

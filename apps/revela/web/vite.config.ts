@@ -13,8 +13,9 @@ export default defineConfig({
   plugins: [
     svelte(),
     VitePWA({
-      registerType: 'autoUpdate',
-      injectRegister: 'auto',
+      // La versión nueva espera a que el usuario toque "Actualizar" (src/lib/actualizar.ts).
+      registerType: 'prompt',
+      injectRegister: false,
       manifest: {
         name: 'Revela',
         short_name: 'Revela',
