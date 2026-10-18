@@ -46,6 +46,37 @@ export const BANDAS = [
 
 export type CanalHsl = 'tono' | 'saturacion' | 'luminancia';
 
+/**
+ * Pesos de las 8 bandas para un tono (grados): triángulos entre centros vecinos. Es
+ * `band_weights` del motor (`crates/algo/src/camera_raw.rs`).
+ */
+export function pesosBandas(h: number): number[] {
+  const n = BANDAS.length;
+  const rem = (a: number) => ((a % 360) + 360) % 360;
+  return BANDAS.map((b, k) => {
+    const c = b.tono;
+    const antes = BANDAS[(k + n - 1) % n].tono;
+    const despues = BANDAS[(k + 1) % n].tono;
+    const dif = rem(h - c + 540) - 180;
+    const ancho = dif >= 0 ? rem(despues - c) : rem(c - antes);
+    return Math.max(0, 1 - Math.abs(dif) / Math.max(ancho, 1e-3));
+  });
+}
+
+/** Tono (grados) y saturación (0..1, la de HSV como el motor) de un color 0..1. */
+export function tonoYSaturacion(r: number, g: number, b: number): [number, number] {
+  const mx = Math.max(r, g, b);
+  const mn = Math.min(r, g, b);
+  const d = mx - mn;
+  let h = 0;
+  if (d > 1e-9) {
+    if (mx === r) h = 60 * ((((g - b) / d) % 6) + 6) % 360;
+    else if (mx === g) h = 60 * ((b - r) / d + 2);
+    else h = 60 * ((r - g) / d + 4);
+  }
+  return [h, mx > 1e-9 ? d / mx : 0];
+}
+
 /** Una rueda de la gradación: tono 0..360, saturación 0..100, luminancia −100..100. */
 export interface Rueda {
   tono: number;
