@@ -113,6 +113,9 @@ locales; exportar 12 MP con el comando entero gasta 770 MB. Por eso:
   - **Mezcla:** los 8 colores del HSL del motor; para cada uno, tono, saturación y luminancia, con las barras pintadas con el color real (el tono va de un color vecino al otro).
     - **Sobre la foto:**
       - Mantener pulsado abre una lupa (15×15 px de la previa ampliados) para apuntar; al soltar se fija ese color.
+      - Se detecta el color medio de una zona de 7×7 px, recuadrada en la lupa.
+      - Con saturación < 0,05 (o casi negro) es neutro y no se fija. Por debajo de 0,15 se avisa: "Casi neutro: el ajuste tendrá poco efecto".
+      - Se nombra como lo diría una persona (`matiz`): "Naranja (marrón)", "Azul (gris frío)". Así se entiende por qué un marrón cuenta como naranja para el HSL.
       - Un toque corto fija el color del punto.
       - Arrastrar en vertical ajusta el color fijado. Se elige qué cambia: tono, saturación o luminancia.
     - El color se mira sin la mezcla ni la gradación (`Revelador.muestra`), que es lo que ve el HSL del motor.
@@ -124,6 +127,12 @@ locales; exportar 12 MP con el comando entero gasta 770 MB. Por eso:
   - La mezcla del usuario manda si la ha cambiado (por defecto, 50 como el motor).
   - El balance se suma.
 - Son etapas por píxel que ya estaban en el shader y en la exportación, y la prueba de igualdad ya las cubría (también en extremos).
+
+## Sliders
+
+Todos los sliders con valor neutro (Luz, Color, Mezcla, Gradación, Enderezar) usan `use:iman` (`lib/iman.ts`):
+- Cerca del neutro se pegan a él (1,5 % del recorrido; 0,4° en Enderezar), con una vibración corta.
+- Un doble toque los devuelve al neutro.
 
 ## Barra de arriba
 

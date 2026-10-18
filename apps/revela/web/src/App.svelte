@@ -25,7 +25,7 @@
   import { carpetaRecordada, guardarEnCarpeta, nombreBase as elegirNombreBase, soportaCarpeta } from './lib/guardar';
   import { Revelador, hayWebGL2, type ParametrosGpu, type PlanoGpu } from './lib/gpu';
   import { FILTROS, recetasDeFiltros, type Filtro } from './lib/filtros';
-  import { BANDAS, aCameraRaw, esVacia, pesosBandas, recetaVacia, tonoYSaturacion, type Canal, type CanalHsl, type IdRueda, type IdSlider, type Punto, type Receta, type Rueda } from './lib/receta';
+  import { BANDAS, aCameraRaw, esVacia, matiz, pesosBandas, recetaVacia, tonoYSaturacion, type Canal, type CanalHsl, type IdRueda, type IdSlider, type Punto, type Receta, type Rueda } from './lib/receta';
   import { probar, recetasDePrueba, TOLERANCIA, type MotorDePrueba } from './lib/autoprueba';
   import type { FormatoExport, InfoFoto, Previa } from './lib/protocolo';
   import {
@@ -577,8 +577,12 @@
   let directo = $state<CanalHsl | null>(null);
   let bandaMezcla = $state(0);
   interface Color {
-    /** Los colores de la mezcla que tocan este, con su parte (%); vacío si es gris. */
+    /** Los colores de la mezcla que tocan este, con su parte (%); vacío si es neutro. */
     partes: { banda: number; pct: number }[];
+    /** Cómo lo llamaría una persona ("marrón", "gris frío"…), si no basta el nombre de la banda. */
+    matiz: string | null;
+    /** Con poca saturación el HSL apenas tiene efecto: se avisa en vez de nombrarlo sin más. */
+    casiNeutro: boolean;
     css: string;
     pesos: number[];
     norma: number;
@@ -599,6 +603,10 @@
   } | null = null;
 
   const LUPA_PX = 15; // píxeles de la previa que se ven en la lupa
+  const ZONA_PX = 7; // la zona cuyo color medio se detecta (recuadrada en la lupa)
+  /** Por debajo de esta saturación no hay color que ajustar; por debajo de CASI, poco efecto. */
+  const NEUTRO = 0.05;
+  const CASI_NEUTRO = 0.15;
   const LUPA_LADO = 120; // tamaño de la lupa en pantalla
 
   function ponerDirecto(c: CanalHsl | null) {
@@ -626,24 +634,29 @@
     const l = lienzoVisible();
     if (!l) return null;
     let rgb: [number, number, number];
-    if (usarGpu && revelador) rgb = revelador.muestra(comparando ? null : ultimosParams, ultimoPlano, x, y);
+    // El color medio de una zona de 7×7 px: un píxel suelto (ruido, un borde) engaña.
+    const r = (ZONA_PX - 1) / 2;
+    if (usarGpu && revelador) rgb = revelador.muestra(comparando ? null : ultimosParams, ultimoPlano, x, y, ZONA_PX);
     else {
       // Sin GPU: lo que se ve (con la mezcla puesta; es una aproximación).
-      const d = l.getContext('2d')?.getImageData(Math.max(0, x - 2), Math.max(0, y - 2), 5, 5).data;
+      const d = l.getContext('2d')?.getImageData(Math.max(0, x - r), Math.max(0, y - r), ZONA_PX, ZONA_PX).data;
       if (!d) return null;
       const suma = [0, 0, 0];
       for (let i = 0; i < d.length; i += 4) for (let c = 0; c < 3; c++) suma[c] += d[i + c];
       rgb = suma.map((v) => v / (d.length / 4) / 255) as [number, number, number];
     }
     const css = `rgb(${rgb.map((c) => Math.round(c * 255)).join(' ')})`;
-    const [h, sat] = tonoYSaturacion(...rgb);
-    if (sat < 0.08) return { partes: [], css, pesos: [], norma: 0 };
+    const [h, sat, brillo] = tonoYSaturacion(...rgb);
+    // En negros casi puros el tono no significa nada.
+    if (sat < NEUTRO || brillo < 0.04) return { partes: [], matiz: null, casiNeutro: true, css, pesos: [], norma: 0 };
     const pesos = pesosBandas(h);
     const orden = pesos.map((w, k) => [w, k]).filter(([w]) => w > 0.05).sort((a, b) => b[0] - a[0]);
     const total = orden.reduce((a, [w]) => a + w, 0) || 1;
     bandaMezcla = orden[0][1];
     return {
       partes: orden.map(([w, k]) => ({ banda: k, pct: Math.round((w / total) * 100) })),
+      matiz: matiz(orden[0][1], sat, brillo),
+      casiNeutro: sat < CASI_NEUTRO,
       css,
       pesos,
       norma: pesos.reduce((a, w) => a + w * w, 0),
@@ -670,13 +683,14 @@
     c.fillRect(0, 0, LUPA_LADO, LUPA_LADO);
     const m = (LUPA_PX - 1) / 2;
     c.drawImage(l, p[0] - m, p[1] - m, LUPA_PX, LUPA_PX, 0, 0, LUPA_LADO, LUPA_LADO);
-    // El píxel del centro, recuadrado.
+    // La zona que se promedia, recuadrada.
     const t = LUPA_LADO / LUPA_PX;
+    const z0 = (m - (ZONA_PX - 1) / 2) * t;
     c.lineWidth = 2;
     c.strokeStyle = '#000';
-    c.strokeRect(m * t - 1, m * t - 1, t + 2, t + 2);
+    c.strokeRect(z0 - 1, z0 - 1, ZONA_PX * t + 2, ZONA_PX * t + 2);
     c.strokeStyle = '#fff';
-    c.strokeRect(m * t, m * t, t, t);
+    c.strokeRect(z0, z0, ZONA_PX * t, ZONA_PX * t);
   }
 
   function bajarDirecto(e: PointerEvent) {
@@ -1152,11 +1166,13 @@
         {#if fijado}
           <span class="muestra" style:background={fijado.css}></span>
           <span>{#if !fijado.partes.length}
-            Gris: elige una zona con color
+            Neutro: no hay color que ajustar
+          {:else if fijado.casiNeutro}
+            Casi neutro (tira a {BANDAS[fijado.partes[0].banda].nombre.toLowerCase()}{#if bandaTocada(fijado.partes[0].banda)}<span class="tocada" aria-label="(con cambios)">•</span>{/if}): el ajuste tendrá poco efecto
           {:else}
             <!-- Un punto naranja: ese color ya tiene cambios en la mezcla (la lupa enseña la foto
                  como se ve, pero la detección usa el color original, como Lightroom). -->
-            {#each fijado.partes as p, i (p.banda)}{#if i > 0}&nbsp;·&nbsp;{/if}{BANDAS[p.banda].nombre}{#if bandaTocada(p.banda)}<span class="tocada" aria-label="(con cambios)">•</span>{/if}&nbsp;{p.pct} %{/each}
+            {#each fijado.partes as p, i (p.banda)}{#if i > 0}&nbsp;·&nbsp;{/if}{BANDAS[p.banda].nombre}{#if bandaTocada(p.banda)}<span class="tocada" aria-label="(con cambios)">•</span>{/if}{#if i === 0 && fijado.matiz}&nbsp;({fijado.matiz}){/if}&nbsp;{p.pct} %{/each}
             {#if !lupa}&nbsp;· arrastra ↕{/if}
           {/if}</span>
         {:else}

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { ANGULO_MAX, PROPORCIONES, type Geometria, type Proporcion } from '../lib/recorte';
+  import { iman } from '../lib/iman';
 
   let {
     geometria,
@@ -46,6 +47,7 @@
 <input
   class="rueda"
   type="range"
+  use:iman={{ zona: 0.4 }}
   aria-label="Enderezar"
   min={-ANGULO_MAX}
   max={ANGULO_MAX}

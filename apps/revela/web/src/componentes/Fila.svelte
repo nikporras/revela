@@ -1,6 +1,8 @@
 <script lang="ts">
   // Un slider compacto en una sola línea: nombre, barra y valor. Para paneles con varios
   // sliders a la vista (mezcla de color, gradación).
+  import { iman } from '../lib/iman';
+
   let {
     nombre,
     valor,
@@ -37,6 +39,7 @@
     {#if marca !== null}<span class="marca" style:left="{marca}%"></span>{/if}
     <input
       type="range"
+      use:iman={{ neutro: neutro ?? 0 }}
       aria-label={nombre}
       {min}
       {max}
