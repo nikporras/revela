@@ -21,6 +21,7 @@
     type Rect,
   } from './lib/recorte';
   import { Motor, motor, pedir, ultimaGana } from './lib/motor';
+  import { borrarEdicion, guardarFoto, guardarReceta, leerEdicion, type RecetaGuardada } from './lib/edicion';
   import { actualizarAhora, buscarActualizacion, vigilarActualizaciones, type EstadoActualizacion } from './lib/actualizar';
   import { AJUSTADA, acercar, esAjustada, limitar, mezclar, type Medidas, type Vista } from './lib/zoom';
   import { carpetaRecordada, guardarEnCarpeta, nombreBase as elegirNombreBase, soportaCarpeta } from './lib/guardar';
@@ -57,6 +58,8 @@
     memoria?: { abrir?: number; exportar?: number };
     compartir?: string;
     guardar?: string;
+    /** Error al guardar la edición en el dispositivo. */
+    guardarEdicion?: string;
     /** Tiempo por cambio de slider (desde que se mueve hasta que está dibujado), últimos 20. */
     vivo?: number[];
     gpu?: string;
@@ -309,6 +312,8 @@
     historial = [...historial.slice(0, posicion + 1), actual].slice(-100);
     posicion = historial.length - 1;
     exportado = null;
+    recuperada = false;
+    guardarEdicion();
   }
 
   function irA(p: number) {
@@ -318,6 +323,7 @@
     exportado = null;
     aplicar();
     reanudarDetalle();
+    guardarEdicion();
   }
 
   function cambiarSlider(id: IdSlider, v: number) {
@@ -359,6 +365,62 @@
     receta = recetaVacia();
     confirmar();
     aplicar();
+    // La papelera también borra la edición guardada; si se sigue editando, se guarda de nuevo.
+    fotoGuardada = false;
+    void borrarEdicion().catch(() => {});
+  }
+
+  // --- La edición guardada en el dispositivo (no se pierde al actualizar o si Android cierra
+  // la app) --------------------------------------------------------------------------------
+
+  /** El archivo abierto (para volver a guardarlo si la papelera borró la edición). */
+  let archivoActual: { archivo: File; deCamara: boolean } | null = null;
+  let fotoGuardada = false;
+  /** Se acaba de recuperar una edición: aviso con "Descartar". */
+  let recuperada = $state(false);
+
+  function recetaGuardada(): RecetaGuardada {
+    return {
+      receta: $state.snapshot(receta) as Receta,
+      historial: $state.snapshot(historial) as Receta[],
+      posicion,
+    };
+  }
+
+  /** Guarda la receta (y la foto, si hace falta). `foto`: una foto recién abierta, aunque no tenga cambios. */
+  function guardarEdicion(foto = false) {
+    if (!archivoActual) return;
+    if (foto) fotoGuardada = false;
+    // Tras la papelera, mientras no haya cambios no hay nada que guardar.
+    else if (!fotoGuardada && esVacia(receta)) return;
+    const r = recetaGuardada();
+    const hecho = fotoGuardada ? guardarReceta(r) : guardarFoto(archivoActual, r);
+    fotoGuardada = true;
+    hecho.catch((e) => (diag.guardarEdicion = `error (${(e as Error).message})`));
+  }
+
+  // Al pasar a segundo plano se guarda lo último (también un slider sin soltar).
+  onMount(() => {
+    const alOcultar = () => document.visibilityState === 'hidden' && fotoGuardada && guardarEdicion();
+    document.addEventListener('visibilitychange', alOcultar);
+    return () => document.removeEventListener('visibilitychange', alOcultar);
+  });
+
+  /** Una receta guardada por una versión anterior puede no tener los campos nuevos. */
+  const completar = (r: Receta): Receta => ({ ...recetaVacia(), ...r });
+
+  async function descartarRecuperada() {
+    recuperada = false;
+    archivoActual = null;
+    fotoGuardada = false;
+    await borrarEdicion().catch(() => {});
+    // De vuelta a la pantalla inicial.
+    info = null;
+    receta = recetaVacia();
+    historial = [recetaVacia()];
+    posicion = 0;
+    aviso = '';
+    directo = null;
   }
 
   // Mantener pulsado para comparar con el original.
@@ -897,7 +959,13 @@
       diag.cargaInicial = performance.now();
       diag.initWasm = r.valor.ms;
       diag.desdeCache = !!navigator.serviceWorker?.controller;
-      estado = 'vacio';
+      // ¿Quedó una edición de la última vez (una actualización, o Android cerró la app)? Se
+      // mira antes de enseñar la pantalla inicial, para que no aparezca un instante.
+      const g = await leerEdicion().catch(() => null);
+      if (g && !info) {
+        const ok = await abrirFoto(g.foto.archivo, g.foto.deCamara, g.receta ?? { receta: recetaVacia(), historial: [recetaVacia()], posicion: 0 });
+        if (!ok) await borrarEdicion().catch(() => {});
+      } else if (!info) estado = 'vacio';
     } catch (e) {
       error = `No se pudo cargar el motor: ${(e as Error).message}`;
       estado = 'vacio';
@@ -909,13 +977,19 @@
     const archivo = entrada.files?.[0];
     entrada.value = '';
     if (!archivo) return;
+    await abrirFoto(archivo, entrada.hasAttribute('capture'));
+  }
+
+  /** Abre una foto; con `restaurar`, la edición guardada de la última vez. */
+  async function abrirFoto(archivo: File, deCamara: boolean, restaurar?: RecetaGuardada): Promise<boolean> {
     error = '';
+    recuperada = false;
     aviso = '';
     exportado = null;
     estado = 'abriendo';
     const t0 = performance.now();
     try {
-      diag.archivo = { nombre: archivo.name, tipo: archivo.type || '(sin tipo)', bytes: archivo.size, origen: entrada.hasAttribute('capture') ? 'botón Cámara' : 'botón Galería' };
+      diag.archivo = { nombre: archivo.name, tipo: archivo.type || '(sin tipo)', bytes: archivo.size, origen: restaurar ? 'edición recuperada' : deCamara ? 'botón Cámara' : 'botón Galería' };
       const bytes = await archivo.arrayBuffer();
       const tLeido = performance.now();
       const lado = ladoPrevia();
@@ -926,7 +1000,6 @@
       baseMini = (await pedir('previa', 160)).valor;
       mini?.cargar(baseMini.width, baseMini.height, baseMini.pixels);
       info = abierto.valor;
-      const deCamara = entrada.hasAttribute('capture');
       nombreBase = elegirNombreBase(archivo.name, info.takenAt, deCamara);
       // Foto nueva: receta e historial nuevos.
       receta = recetaVacia();
@@ -947,11 +1020,25 @@
         aviso = `Foto reducida de ${mpx(info.originalWidth, info.originalHeight)} a ${mpx(info.width, info.height)} (límite ${limiteMp} MP).`;
       }
       // El navegador entrega la foto de la cámara comprimida (≈ 1,4 MB a 12 MP en Chrome).
-      avisoCamara = deCamara && !avisoCamaraVisto;
+      avisoCamara = deCamara && !avisoCamaraVisto && !restaurar;
+      archivoActual = { archivo, deCamara };
+      if (restaurar) {
+        historial = restaurar.historial.length ? restaurar.historial.map(completar) : [recetaVacia()];
+        posicion = Math.min(Math.max(restaurar.posicion, 0), historial.length - 1);
+        receta = completar(structuredClone(restaurar.receta));
+        fotoGuardada = true;
+        recuperada = true;
+        aplicar();
+      } else {
+        // Foto nueva: sustituye a la edición guardada.
+        guardarEdicion(true);
+      }
       estado = 'lista';
+      return true;
     } catch (e) {
       error = `No se pudo abrir la foto: ${(e as Error).message}`;
       estado = info ? 'lista' : 'vacio';
+      return false;
     }
   }
 
@@ -1070,6 +1157,7 @@
     if (d.exportar) l.push(`Exportar ${d.exportar.formato.toUpperCase()} q${d.exportar.calidad}: ${ms(d.exportar.ms)} · ${mb(d.exportar.bytes)}`);
     if (d.compartir) l.push(`Compartir: ${d.compartir}`);
     l.push(`Guardar en carpeta: ${soportaCarpeta ? (d.guardar ?? 'disponible') : 'no disponible (va a Descargas)'}`);
+    l.push(`Edición guardada en el dispositivo: ${d.guardarEdicion ?? (archivoActual && fotoGuardada ? 'sí' : 'no')}`);
     if (d.memoria?.abrir)
       l.push(`Memoria del motor (pico): al abrir ${mb(d.memoria.abrir)}` + (d.memoria.exportar ? ` · al exportar ${mb(d.memoria.exportar)}` : ''));
     if (d.autoprueba) l.push(`Prueba GPU = exportación: ${d.autoprueba}`);
@@ -1213,9 +1301,18 @@
     {/if}
   </section>
 
+  {#if recuperada}
+    <div class="mensaje cerrable nueva" role="status">
+      <p>Se recuperó tu edición.</p>
+      <button class="enlace-boton" onclick={descartarRecuperada}>Descartar</button>
+      <button class="cerrar" aria-label="Cerrar el aviso" onclick={() => (recuperada = false)}>
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg>
+      </button>
+    </div>
+  {/if}
   {#if actualizacion === 'disponible'}
     <div class="mensaje cerrable nueva" role="status">
-      <p>Nueva versión de Revela disponible.{#if editada} Al actualizar se pierden los cambios sin exportar.{/if}</p>
+      <p>Nueva versión de Revela disponible.</p>
       <button class="enlace-boton" onclick={actualizarAhora}>Actualizar</button>
     </div>
   {/if}

@@ -135,10 +135,18 @@ Todos los sliders con valor neutro (Luz, Color, Mezcla, Gradación, Enderezar) u
 - Al cruzar el neutro (de un lado al otro) se detienen en él con una vibración corta. No atraen desde cerca, así que valores pequeños como 1 o 2 se pueden poner desde los dos lados.
 - Un doble toque los devuelve al neutro.
 
+## La edición no se pierde
+
+- La foto abierta y la receta (con su historial de deshacer) se guardan en IndexedDB (`src/lib/edicion.ts`, base `revela-edicion`). Solo una edición, la última.
+- La foto se escribe una vez al abrirla; la receta, en cada paso de deshacer y al pasar la app a segundo plano.
+- Al abrir Revela, si hay una edición guardada se vuelve a abrir antes de enseñar la pantalla inicial, con el aviso "Se recuperó tu edición" y el botón **Descartar** (vuelve a la pantalla inicial y la borra).
+- Exportar no la borra; abrir otra foto la sustituye; la papelera la borra (si se sigue editando, se guarda de nuevo).
+- Se pide almacenamiento persistente (`navigator.storage.persist`) para que el navegador no la borre si le falta sitio.
+
 ## Actualizaciones
 
 - El service worker está en modo `prompt` (`src/lib/actualizar.ts`): la versión nueva se descarga sola pero espera.
-- Sale el aviso "Nueva versión de Revela disponible · Actualizar" y la página se recarga solo cuando el usuario lo toca, para no perder una edición a medias. Si hay cambios sin exportar, el aviso lo advierte.
+- Sale el aviso "Nueva versión de Revela disponible · Actualizar" y la página se recarga solo cuando el usuario lo toca, para no perder una edición a medias. La edición en curso se recupera al recargar.
 - También se busca al volver a la app y a mano en ⓘ (Buscar actualización / Actualizar ahora).
 - La activación (mensaje `SKIP_WAITING` y recarga en `controllerchange`) se hace a mano: la de `registerSW` solo recarga si fue ella quien encontró la versión.
 
