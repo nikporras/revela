@@ -89,9 +89,9 @@ Repo: `github.com/nikporras/revela` (fork de `storytold/photocraft`).
 5. **Producto y redes:** funciones de la versión 2.
 6. **Pulido:** rendimiento, pruebas en Android e iOS, iconos y nombre de Revela.
 
-## Estado actual (17 de octubre de 2026)
+## Estado actual (19 de octubre de 2026)
 
-En línea: https://nikporras.github.io/revela/ (versión `34d0947`). Cada push a `main` pasa las pruebas, incluida la de igualdad entre la previa en la GPU y la exportación, y si pasan se despliega.
+En línea: https://nikporras.github.io/revela/ (versión `d1c3c67`). Cada push a `main` pasa las pruebas, incluida la de igualdad entre la previa en la GPU y la exportación (376 comparaciones), y si pasan se despliega. Los commits que solo tocan documentación llevan `[skip ci]`.
 
 ### Hecho
 
@@ -104,32 +104,36 @@ En línea: https://nikporras.github.io/revela/ (versión `34d0947`). Cada push a
   - Exportar JPG o PNG (calidad 90 por defecto, con barra de progreso), compartir y guardar en carpeta. Sin GPS por defecto.
   - Zoom: pellizco, arrastre con un dedo, doble toque entre ajustar a pantalla y 100 %, y zona nítida a resolución completa. Los sliders tienen prioridad sobre la zona nítida.
   - Con el botón Cámara, la exportación se nombra por fecha y aparece un aviso de calidad que se puede cerrar.
+- **Herramientas de color y efectos (plan del 18 de octubre), hecho y probado en el S25:**
+  - **Pestañas** Recortar · Filtros · Editar, y en Editar las secciones Luz, Color, Efectos y Curvas. Con una foto abierta, abrir y exportar van en iconos arriba.
+  - **Color:** HSL de 8 colores (tono, saturación y luminancia, con las barras pintadas con el color real) y gradación con ruedas (imán en el centro).
+  - **Mezcla sobre la foto:** mantener pulsado abre una lupa (zona de 7×7 px) y fija el color; arrastrar en vertical lo ajusta. Muestra el nombre visible ("Marrón", "Gris frío"…), con qué color de la mezcla se ajusta, el aviso de casi neutro y el punto naranja si ese color ya tiene cambios.
+  - **Sliders:** arrastre relativo (tocar no salta), ajuste fino subiendo el dedo (½, ¼, 1/10), valor exacto tocando el número, imán sutil al cruzar el neutro y doble toque al neutro.
+  - **Recuperar edición:** la foto y la receta con su historial se guardan en IndexedDB; al volver a abrir Revela se recupera, con un aviso y el botón Descartar.
+  - **Botón de actualizar:** aviso "Nueva versión disponible · Actualizar" y "Buscar actualización" en ⓘ, sin cerrar la app.
+  - **Viñeta** (Efectos): fórmula del motor copiada en Revela con coordenadas del encuadre final; igual en la previa, en Recortar, en el zoom y al exportar.
 - **Probado en el S25 Ultra:**
-  - Ajustes en vivo: 2 ms de mediana.
-  - "Probar GPU": diferencia máxima 1/255.
-  - Recortar y exportar, guardar en carpeta, compartir y cámara.
+  - Ajustes en vivo: 1–3 ms de mediana.
+  - "Probar GPU": 376 comparaciones, diferencia máxima 1/255.
+  - Recortar y exportar, guardar en carpeta, compartir, cámara y zoom.
   - Memoria al exportar igual que al abrir (unos 180 MB).
-- **Zoom en el S25 (18 de octubre):** pellizco fluido, zona nítida al soltar, sliders bien con zoom y asas de recorte bien con zoom.
 
 ### Falta probar
 
 - **Botón Cámara:** el nombre del archivo exportado y el aviso con X (no debe volver a salir una vez cerrado).
 - **Safari de iOS:** todavía sin probar.
 
-### Lo siguiente: herramientas de color y efectos (plan aprobado el 18 de octubre)
+### Lo siguiente (en este orden)
 
-Pestañas: **Recortar · Filtros · Editar**. Editar tiene las secciones **Luz, Color, Efectos y Curvas** (como Lightroom móvil).
+1. **Color puntual** en Editar › Color (como Point Color de Lightroom): color exacto con la lupa, ancho del rango ajustable, tono, saturación y luminancia solo de ese color, vista que resalte las zonas afectadas, y varios colores puntuales.
+2. **Grano** (Efectos). El ruido lo calcula el motor como textura; es aproximado a tamaño de pantalla y exacto al 100 %, con la nota "Míralo al 100 % (doble toque)".
+3. **Volver a traducir los filtros de LightCraft:** vuelven 6 de los 16 excluidos (los que dependen de viñeta y grano).
+4. **Nitidez** (Efectos). Bloques con margen al exportar y varias pasadas en la GPU. Aproximada a tamaño de pantalla y exacta al 100 %, con la misma nota.
+5. **Textura, claridad y dehaze**, para recuperar los otros 10 filtros.
+6. **Fase 5 (Versión 2), producto y redes:**
+   1. **Quitar fondo** en el dispositivo, con fondo de color o degradado. La API ya está diseñada para poder cambiar después a un modelo de IA (ver la arquitectura).
+   2. **Texto** sobre la foto: fuente, tamaño, color y sombra. Fuentes OFL servidas por el motor (decisión en la arquitectura).
+   3. **Plantillas para redes:** 1:1 (1080×1080), 4:5 (1080×1350) y 9:16 (1080×1920).
+   4. Edición en lote (después de las tres anteriores).
 
-1. **Color** (hecho y probado en el S25): HSL (8 colores × tono, saturación y luminancia) y gradación (sombras, medios, luces, global, mezcla y balance), con la nueva estructura de pestañas.
-2. **Viñeta** (hecho, falta probar en el S25): en Efectos, sobre el encuadre final. Fórmula del motor copiada en Revela con coordenadas globales y comprobada contra el motor.
-3. **Grano** (Efectos). El ruido lo calcula el motor como textura; es aproximado a tamaño de pantalla y exacto al 100 %, con la nota "Míralo al 100 % (doble toque)".
-4. **Volver a traducir los filtros de LightCraft:** vuelven 6 de los 16 excluidos (los que dependen de viñeta y grano).
-5. **Nitidez** (Efectos). Bloques con margen al exportar y varias pasadas en la GPU. Aproximada a tamaño de pantalla y exacta al 100 %, con la misma nota.
-6. **Bloque posterior:** textura primero, luego claridad y dehaze, para recuperar los otros 10 filtros.
-
-### Después: Fase 5 (Versión 2)
-
-1. **Quitar fondo** en el dispositivo, con fondo de color o degradado. La API ya está diseñada para poder cambiar después a un modelo de IA (ver la arquitectura).
-2. **Texto** sobre la foto: fuente, tamaño, color y sombra. Fuentes OFL servidas por el motor (decisión en la arquitectura).
-3. **Plantillas para redes:** 1:1 (1080×1080), 4:5 (1080×1350) y 9:16 (1080×1920).
-4. Edición en lote (después de las tres anteriores).
+Cada paso, uno a la vez: desplegado y probado en el S25 antes de seguir.
