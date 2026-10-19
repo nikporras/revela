@@ -1,5 +1,7 @@
 <script lang="ts">
   import { FILTROS, type Filtro } from '../lib/filtros';
+  import { iman } from '../lib/iman';
+  import Valor from './Valor.svelte';
 
   let {
     filtro,
@@ -54,17 +56,29 @@
 {#if filtro && actual}
   <div class="intensidad">
     <span>{actual.nombre}</span>
-    <input
-      type="range"
-      aria-label="Intensidad"
-      min="0"
-      max="100"
-      step="1"
-      value={Math.round(filtro.intensidad * 100)}
-      oninput={(e) => oncambio({ id: filtro.id, intensidad: Number((e.currentTarget as HTMLInputElement).value) / 100 })}
-      onchange={onfin}
+    <!-- El contenedor recibe el dedo (arrastre relativo y ajuste fino, ver lib/iman.ts). -->
+    <span class="pista">
+      <input
+        type="range"
+        use:iman={{ neutro: 100 }}
+        aria-label="Intensidad"
+        min="0"
+        max="100"
+        step="1"
+        value={Math.round(filtro.intensidad * 100)}
+        oninput={(e) => oncambio({ id: filtro.id, intensidad: Number((e.currentTarget as HTMLInputElement).value) / 100 })}
+        onchange={onfin}
+      />
+    </span>
+    <Valor
+      texto="{Math.round(filtro.intensidad * 100)} %"
+      valor={Math.round(filtro.intensidad * 100)}
+      min={0}
+      max={100}
+      nombre="Intensidad"
+      oncambio={(v) => oncambio({ id: filtro.id, intensidad: v / 100 })}
+      {onfin}
     />
-    <b>{Math.round(filtro.intensidad * 100)} %</b>
   </div>
   {#if actual.nota}<p class="nota">≈ {actual.nota}</p>{/if}
 {/if}
@@ -112,16 +126,14 @@
     gap: 12px;
     padding: 0 16px;
   }
+  .pista {
+    flex: 1;
+    display: flex;
+  }
   .intensidad input {
     flex: 1;
     height: 40px;
     accent-color: var(--acento);
-  }
-  .intensidad b {
-    width: 56px;
-    white-space: nowrap;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
   }
   .nota {
     margin: 0 16px;

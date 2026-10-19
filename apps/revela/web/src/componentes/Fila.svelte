@@ -2,6 +2,7 @@
   // Un slider compacto en una sola línea: nombre, barra y valor. Para paneles con varios
   // sliders a la vista (mezcla de color, gradación).
   import { iman } from '../lib/iman';
+  import Valor from './Valor.svelte';
 
   let {
     nombre,
@@ -33,7 +34,7 @@
   const marca = $derived(neutro === null ? null : ((neutro - min) / (max - min)) * 100);
 </script>
 
-<label class="fila">
+<div class="fila">
   <span class="nombre">{nombre}</span>
   <span class="barra" class:con-pista={!!pista} style:--pista={pista || null}>
     {#if marca !== null}<span class="marca" style:left="{marca}%"></span>{/if}
@@ -49,8 +50,10 @@
       onchange={onfin}
     />
   </span>
-  <b class:cambiado={neutro !== null && valor !== neutro}>{texto}</b>
-</label>
+  <span class="valor-fila">
+    <Valor {texto} {valor} {min} {max} {paso} {nombre} cambiado={neutro !== null && valor !== neutro} {oncambio} {onfin} />
+  </span>
+</div>
 
 <style>
   .fila {
@@ -126,15 +129,10 @@
     border-radius: 50%;
     background: var(--texto);
   }
-  b {
+  /* El número: tenue en su valor neutro (Valor lo resalta si cambia). */
+  .valor-fila {
     flex: none;
-    width: 44px;
-    text-align: right;
     font-size: 14px;
-    font-variant-numeric: tabular-nums;
     color: var(--texto-2);
-  }
-  .cambiado {
-    color: var(--texto);
   }
 </style>

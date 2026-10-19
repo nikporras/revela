@@ -140,9 +140,12 @@ locales; exportar 12 MP con el comando entero gasta 770 MB. Por eso:
 
 ## Sliders
 
-Todos los sliders con valor neutro (Luz, Color, Mezcla, Gradación, Enderezar) usan `use:iman` (`lib/iman.ts`):
-- Al cruzar el neutro (de un lado al otro) se detienen en él con una vibración corta. No atraen desde cerca, así que valores pequeños como 1 o 2 se pueden poner desde los dos lados.
-- Un doble toque los devuelve al neutro.
+Todos los sliders de edición (Luz, Color, Mezcla, Gradación, Viñeta, Enderezar e intensidad del filtro) usan `use:iman` (`lib/iman.ts`):
+- **Arrastre relativo:** el valor se mueve lo que se mueve el dedo; tocar no salta. El dedo lo recibe el contenedor del `<input>`; el `<input>` queda para el teclado y la accesibilidad.
+- **Ajuste fino:** cuanto más sube el dedo por encima del slider, más despacio va (½ a partir de 40 px, ¼ a partir de 100 px, 1/10 a partir de 170 px), con un rótulo junto al dedo.
+- **Imán:** al cruzar el neutro se detiene en él, con una vibración corta, y hay que seguir 12 px para salir. No atrae desde cerca.
+- **Doble toque:** vuelve al neutro.
+- **Valor exacto:** al tocar el número se puede escribir (`Valor.svelte`). Se ajusta a los límites y al paso del slider, acepta coma decimal y tiene un botón ± porque el teclado decimal de Android no siempre trae "−".
 
 ## La edición no se pierde
 

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ANGULO_MAX, PROPORCIONES, type Geometria, type Proporcion } from '../lib/recorte';
   import { iman } from '../lib/iman';
+  import Valor from './Valor.svelte';
 
   let {
     geometria,
@@ -41,21 +42,33 @@
 
 <div class="enderezar">
   <span>Enderezar</span>
-  <b>{angulo > 0 ? '+' : ''}{angulo.toFixed(1)}°</b>
+  <Valor
+    texto="{angulo > 0 ? '+' : ''}{angulo.toFixed(1)}°"
+    valor={angulo}
+    min={-ANGULO_MAX}
+    max={ANGULO_MAX}
+    paso={0.1}
+    nombre="Enderezar"
+    oncambio={onangulo}
+    {onfin}
+  />
   <button class="cero" disabled={angulo === 0} onclick={() => { onangulo(0); onfin(); }}>0°</button>
 </div>
-<input
-  class="rueda"
-  type="range"
-  use:iman
-  aria-label="Enderezar"
-  min={-ANGULO_MAX}
-  max={ANGULO_MAX}
-  step="0.1"
-  value={angulo}
-  oninput={(e) => onangulo(Number((e.currentTarget as HTMLInputElement).value))}
-  onchange={onfin}
-/>
+<!-- El contenedor recibe el dedo (arrastre relativo y ajuste fino, ver lib/iman.ts). -->
+<div class="pista">
+  <input
+    class="rueda"
+    type="range"
+    use:iman
+    aria-label="Enderezar"
+    min={-ANGULO_MAX}
+    max={ANGULO_MAX}
+    step="0.1"
+    value={angulo}
+    oninput={(e) => onangulo(Number((e.currentTarget as HTMLInputElement).value))}
+    onchange={onfin}
+  />
+</div>
 
 <div class="acciones">
   <button onclick={ongirar} aria-label="Girar 90° a la izquierda">
@@ -110,9 +123,6 @@
     align-items: baseline;
     gap: 10px;
     padding: 2px 16px 0;
-  }
-  .enderezar b {
-    font-variant-numeric: tabular-nums;
   }
   .cero {
     margin-left: auto;

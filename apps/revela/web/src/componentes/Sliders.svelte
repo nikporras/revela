@@ -3,6 +3,7 @@
   import type { Snippet } from 'svelte';
   import { SLIDERS, type IdSlider } from '../lib/receta';
   import { iman } from '../lib/iman';
+  import Valor from './Valor.svelte';
 
   let {
     ids,
@@ -64,21 +65,24 @@
   <div class="control">
     <div class="cabecera">
       <span>{def.nombre}</span>
-      <b>{texto(valor)}</b>
+      <Valor texto={texto(valor)} {valor} min={def.min} max={def.max} paso={def.paso} nombre={def.nombre} oncambio={(v) => oncambio(def.id, v)} {onfin} />
       <button class="cero" disabled={valor === 0} onclick={restablecer}>Restablecer</button>
     </div>
-    <input
-      type="range"
-      use:iman
-      aria-label={def.nombre}
-      min={def.min}
-      max={def.max}
-      step={def.paso}
-      value={valor}
-      style="--cero: {((0 - def.min) / (def.max - def.min)) * 100}%"
-      oninput={(e) => oncambio(def.id, Number((e.currentTarget as HTMLInputElement).value))}
-      onchange={onfin}
-    />
+    <!-- El contenedor recibe el dedo (arrastre relativo y ajuste fino, ver lib/iman.ts). -->
+    <div class="pista">
+      <input
+        type="range"
+        use:iman
+        aria-label={def.nombre}
+        min={def.min}
+        max={def.max}
+        step={def.paso}
+        value={valor}
+        style="--cero: {((0 - def.min) / (def.max - def.min)) * 100}%"
+        oninput={(e) => oncambio(def.id, Number((e.currentTarget as HTMLInputElement).value))}
+        onchange={onfin}
+      />
+    </div>
   </div>
 {/if}
 
@@ -122,8 +126,8 @@
     align-items: baseline;
     gap: 10px;
   }
-  .cabecera b {
-    font-variant-numeric: tabular-nums;
+  .pista {
+    display: flex;
   }
   .cero {
     margin-left: auto;
