@@ -64,23 +64,39 @@ export function pesosBandas(h: number): number[] {
 }
 
 /**
- * Cómo llamaría una persona a un color que el HSL clasifica en la banda `banda` (para decir
- * por qué un marrón cuenta como naranja): `null` si el nombre de la banda ya basta. `s` y `v`
- * son la saturación y el brillo de HSV (0..1).
+ * El nombre que una persona le daría a un color ("Marrón", "Beige", "Gris frío", "Azul
+ * cielo"…), a partir del tono (grados), la saturación y el brillo de HSV (0..1). Sirve para
+ * explicar qué color de la mezcla lo ajusta: un marrón se ajusta con Naranja.
  */
-export function matiz(banda: number, s: number, v: number): string | null {
-  const nombre = BANDAS[banda].nombre;
-  const calido = ['Rojo', 'Naranja', 'Amarillo'].includes(nombre);
-  const frio = ['Aguamarina', 'Azul', 'Morado'].includes(nombre);
-  if (v < 0.2) return frio ? 'sombra fría' : calido ? 'sombra cálida' : 'sombra';
-  if (s < 0.3) {
-    if (calido) return v > 0.7 ? 'beige' : 'gris cálido';
-    if (frio) return 'gris frío';
-    return 'apagado';
+export function nombreVisible(h: number, s: number, v: number): string {
+  const calido = h < 70 || h >= 330;
+  const frio = h >= 160 && h < 260;
+  if (v < 0.12) return s < 0.25 ? 'Negro' : frio ? 'Sombra fría' : calido ? 'Sombra cálida' : 'Sombra';
+  if (s < 0.12) {
+    if (v > 0.88) return 'Blanco';
+    if (s < 0.05) return 'Gris';
+    return calido ? 'Gris cálido' : frio ? 'Gris frío' : 'Gris';
   }
-  if (calido && nombre !== 'Amarillo' && v < 0.55) return 'marrón';
-  if (nombre === 'Amarillo' && v < 0.55) return 'oliva';
-  return null;
+  if (s < 0.3) {
+    if (h >= 15 && h < 30 && s >= 0.18 && v > 0.6) return 'Tono piel';
+    if (calido) return v > 0.75 ? (h < 15 || h >= 330 ? 'Rosa pálido' : 'Beige') : 'Gris cálido';
+    if (h < 160) return 'Verde grisáceo';
+    if (frio) return v > 0.75 ? 'Azul pálido' : 'Gris frío';
+    return 'Malva';
+  }
+  if (h < 12 || h >= 345) return v < 0.5 ? 'Granate' : s < 0.6 && v > 0.7 ? 'Rosa' : 'Rojo';
+  if (h < 40) {
+    if (v < 0.6) return 'Marrón';
+    if (h >= 15 && h < 30 && s < 0.55 && v > 0.6) return 'Tono piel';
+    return 'Naranja';
+  }
+  if (h < 70) return v < 0.55 ? 'Oliva' : s < 0.5 && v > 0.8 ? 'Crema' : 'Amarillo';
+  if (h < 160) return v < 0.4 ? 'Verde oscuro' : 'Verde';
+  if (h < 200) return v > 0.7 ? 'Turquesa' : 'Aguamarina';
+  if (h < 225) return v > 0.6 ? 'Azul cielo' : 'Azul';
+  if (h < 255) return v < 0.45 ? 'Azul marino' : 'Azul';
+  if (h < 290) return v > 0.7 && s < 0.5 ? 'Lavanda' : 'Morado';
+  return v > 0.7 && s < 0.6 ? 'Rosa' : 'Magenta';
 }
 
 /** Tono (grados), saturación y brillo (0..1, los de HSV como el motor) de un color 0..1. */

@@ -1,7 +1,7 @@
-// Imán para sliders (`use:iman`): al llegar cerca del valor neutro (o al pasarlo de largo) se
-// pega a él, con una vibración corta (como la rueda de gradación). Solo al llegar: saliendo
-// desde el neutro no hay imán, así que valores pequeños (1, 2, 3…) se pueden poner. Un doble
-// toque lo devuelve al neutro.
+// Imán sutil para sliders (`use:iman`): al cruzar el valor neutro (de un lado al otro) el
+// slider se detiene en él, con una vibración corta (como la rueda de gradación). No atrae desde
+// cerca, así que valores pequeños (1, 2…) se pueden poner desde los dos lados. Un doble toque
+// lo devuelve al neutro.
 //
 // Escucha `input` en el propio <input>: Svelte 5 delega `oninput` en la raíz, así que este
 // oyente corre antes y el componente ya recibe el valor pegado.
@@ -9,21 +9,21 @@
 export interface OpcionesIman {
   /** Valor neutro (0 por defecto). */
   neutro?: number;
-  /** Distancia a la que se pega; por defecto, el 1 % del recorrido. */
+  /** Distancia a la que también se pega al acercarse; por defecto 0 (solo al cruzarlo). */
   zona?: number;
 }
 
 export function iman(el: HTMLInputElement, opciones: OpcionesIman = {}) {
   let o = opciones;
   const neutro = () => o.neutro ?? 0;
-  const zona = () => o.zona ?? (Number(el.max) - Number(el.min)) * 0.01;
+  const zona = () => o.zona ?? 0;
   let anterior = Number(el.value);
 
   function alMover() {
     const n = neutro();
     const v = Number(el.value);
-    // Llegando: acercándose y ya cerca del neutro, o al otro lado de él (un arrastre rápido lo
-    // salta). Alejándose no se pega.
+    // Al pasar al otro lado del neutro se detiene en él (y, si hay zona, al acercarse mucho).
+    // Alejándose no se pega.
     const cruza = Math.sign(v - n) !== Math.sign(anterior - n);
     const acerca = Math.abs(v - n) < Math.abs(anterior - n) && Math.abs(v - n) <= zona();
     const llega = anterior !== n && v !== n && (cruza || acerca);
