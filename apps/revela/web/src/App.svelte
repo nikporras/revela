@@ -26,7 +26,7 @@
   import { carpetaRecordada, guardarEnCarpeta, nombreBase as elegirNombreBase, soportaCarpeta } from './lib/guardar';
   import { Revelador, hayWebGL2, type ParametrosGpu, type PlanoGpu } from './lib/gpu';
   import { FILTROS, recetasDeFiltros, type Filtro } from './lib/filtros';
-  import { BANDAS, aCameraRaw, esVacia, matiz, pesosBandas, recetaVacia, tonoYSaturacion, type Canal, type CanalHsl, type IdRueda, type IdSlider, type Punto, type Receta, type Rueda } from './lib/receta';
+  import { BANDAS, aCameraRaw, esVacia, nombreVisible, pesosBandas, recetaVacia, tonoYSaturacion, type Canal, type CanalHsl, type IdRueda, type IdSlider, type Punto, type Receta, type Rueda } from './lib/receta';
   import { probar, recetasDePrueba, TOLERANCIA, type MotorDePrueba } from './lib/autoprueba';
   import type { FormatoExport, InfoFoto, Previa } from './lib/protocolo';
   import {
@@ -584,8 +584,8 @@
   interface Color {
     /** Los colores de la mezcla que tocan este, con su parte (%); vacío si es neutro. */
     partes: { banda: number; pct: number }[];
-    /** Cómo lo llamaría una persona ("marrón", "gris frío"…), si no basta el nombre de la banda. */
-    matiz: string | null;
+    /** Cómo lo llamaría una persona ("Marrón", "Gris frío", "Azul cielo"…). */
+    nombre: string;
     /** Con poca saturación el HSL apenas tiene efecto: se avisa en vez de nombrarlo sin más. */
     casiNeutro: boolean;
     css: string;
@@ -622,6 +622,11 @@
     }
   }
 
+  /** Los colores de la mezcla que ajustan el detectado: el principal y, si pesa, el segundo. */
+  const canales = (c: Color) => c.partes.filter((p, i) => i === 0 || p.pct >= 25).map((p) => p.banda);
+  /** Una sola línea si lo que se ve ya es el nombre del color que lo ajusta ("Azul"). */
+  const unaLinea = (c: Color) => c.partes.length > 0 && !c.casiNeutro && canales(c).length === 1 && c.nombre === BANDAS[c.partes[0].banda].nombre;
+
   const bandaTocada = (k: number) => receta.hsl.tono[k] !== 0 || receta.hsl.saturacion[k] !== 0 || receta.hsl.luminancia[k] !== 0;
 
   /** El punto de la previa (píxeles del lienzo) bajo una posición de la pantalla. */
@@ -653,14 +658,15 @@
     const css = `rgb(${rgb.map((c) => Math.round(c * 255)).join(' ')})`;
     const [h, sat, brillo] = tonoYSaturacion(...rgb);
     // En negros casi puros el tono no significa nada.
-    if (sat < NEUTRO || brillo < 0.04) return { partes: [], matiz: null, casiNeutro: true, css, pesos: [], norma: 0 };
+    const nombre = nombreVisible(h, sat, brillo);
+    if (sat < NEUTRO || brillo < 0.08) return { partes: [], nombre, casiNeutro: true, css, pesos: [], norma: 0 };
     const pesos = pesosBandas(h);
     const orden = pesos.map((w, k) => [w, k]).filter(([w]) => w > 0.05).sort((a, b) => b[0] - a[0]);
     const total = orden.reduce((a, [w]) => a + w, 0) || 1;
     bandaMezcla = orden[0][1];
     return {
       partes: orden.map(([w, k]) => ({ banda: k, pct: Math.round((w / total) * 100) })),
-      matiz: matiz(orden[0][1], sat, brillo),
+      nombre,
       casiNeutro: sat < CASI_NEUTRO,
       css,
       pesos,
@@ -1170,16 +1176,24 @@
       <div class="etiqueta directo" role="status">
         {#if fijado}
           <span class="muestra" style:background={fijado.css}></span>
-          <span>{#if !fijado.partes.length}
-            Neutro: no hay color que ajustar
-          {:else if fijado.casiNeutro}
-            Casi neutro (tira a {BANDAS[fijado.partes[0].banda].nombre.toLowerCase()}{#if bandaTocada(fijado.partes[0].banda)}<span class="tocada" aria-label="(con cambios)">•</span>{/if}): el ajuste tendrá poco efecto
-          {:else}
-            <!-- Un punto naranja: ese color ya tiene cambios en la mezcla (la lupa enseña la foto
-                 como se ve, pero la detección usa el color original, como Lightroom). -->
-            {#each fijado.partes as p, i (p.banda)}{#if i > 0}&nbsp;·&nbsp;{/if}{BANDAS[p.banda].nombre}{#if bandaTocada(p.banda)}<span class="tocada" aria-label="(con cambios)">•</span>{/if}{#if i === 0 && fijado.matiz}&nbsp;({fijado.matiz}){/if}&nbsp;{p.pct} %{/each}
-            {#if !lupa}&nbsp;· arrastra ↕{/if}
-          {/if}</span>
+          <!-- Arriba, lo que se ve ("Marrón"); debajo, qué color de la mezcla lo ajusta. Si es el
+               mismo ("Azul"), una sola línea. Un punto naranja: ese color ya tiene cambios en la
+               mezcla (la lupa enseña la foto como se ve, pero la detección usa el color
+               original, como Lightroom). -->
+          <span class="lineas">
+            <span class="visible">
+              {fijado.nombre}{#if unaLinea(fijado) && bandaTocada(fijado.partes[0].banda)}<span class="tocada" aria-label="(con cambios)">•</span>{/if}
+              {#if fijado.partes.length && !lupa}<span class="flecha" aria-label="arrastra en vertical">↕</span>{/if}
+            </span>
+            {#if !fijado.partes.length}
+              <small>sin color que ajustar</small>
+            {:else if !unaLinea(fijado)}
+              <small>
+                {#if fijado.casiNeutro}casi sin color: poco efecto · {/if}se ajusta con
+                {#each canales(fijado) as k, i (k)}{#if i > 0}&nbsp;y&nbsp;{/if}{BANDAS[k].nombre}{#if bandaTocada(k)}<span class="tocada" aria-label="(con cambios)">•</span>{/if}{/each}
+              </small>
+            {/if}
+          </span>
         {:else}
           Mantén pulsado para la lupa, o arrastra ↕
         {/if}
@@ -1252,6 +1266,7 @@
             bind:seccion
             bind:bandaMezcla
             {directo}
+            detectadas={fijado ? canales(fijado) : []}
             ondirecto={ponerDirecto}
             oncambio={cambiarSlider}
             oncurva={cambiarCurva}
@@ -1483,10 +1498,30 @@
   .etiqueta.directo {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     max-width: calc(100% - 32px);
     white-space: nowrap;
     font-size: 13px;
+    border-radius: 18px;
+    padding: 6px 14px 6px 10px;
+  }
+  .lineas {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.25;
+  }
+  .visible {
+    font-size: 16px;
+    font-weight: 600;
+  }
+  .lineas small {
+    font-size: 12px;
+    color: #fffb;
+  }
+  .flecha {
+    margin-left: 6px;
+    font-weight: 400;
+    color: #fff9;
   }
   .tocada {
     color: var(--acento);

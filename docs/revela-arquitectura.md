@@ -115,7 +115,8 @@ locales; exportar 12 MP con el comando entero gasta 770 MB. Por eso:
       - Mantener pulsado abre una lupa (15×15 px de la previa ampliados) para apuntar; al soltar se fija ese color.
       - Se detecta el color medio de una zona de 7×7 px, recuadrada en la lupa.
       - Con saturación < 0,05 (o casi negro) es neutro y no se fija. Por debajo de 0,15 se avisa: "Casi neutro: el ajuste tendrá poco efecto".
-      - Se nombra como lo diría una persona (`matiz`): "Naranja (marrón)", "Azul (gris frío)". Así se entiende por qué un marrón cuenta como naranja para el HSL.
+      - Arriba, en grande, el nombre que le daría una persona (`nombreVisible`: "Marrón", "Beige", "Gris frío", "Oliva", "Azul cielo"…). Debajo, en pequeño, qué color de la mezcla lo ajusta ("se ajusta con Naranja"; dos si el segundo pesa ≥ 25 %). Si coinciden ("Azul"), una sola línea.
+      - Los círculos de esos colores se resaltan con un anillo de acento en la fila de colores.
       - Un toque corto fija el color del punto.
       - Arrastrar en vertical ajusta el color fijado. Se elige qué cambia: tono, saturación o luminancia.
     - El color se mira sin la mezcla ni la gradación (`Revelador.muestra`), que es lo que ve el HSL del motor.
@@ -131,7 +132,7 @@ locales; exportar 12 MP con el comando entero gasta 770 MB. Por eso:
 ## Sliders
 
 Todos los sliders con valor neutro (Luz, Color, Mezcla, Gradación, Enderezar) usan `use:iman` (`lib/iman.ts`):
-- Al llegar cerca del neutro (1 % del recorrido; 0,4° en Enderezar), o al pasarlo de largo, se pegan a él con una vibración corta. Saliendo desde el neutro no hay imán, así que valores pequeños como 1, 2 o 3 se pueden poner.
+- Al cruzar el neutro (de un lado al otro) se detienen en él con una vibración corta. No atraen desde cerca, así que valores pequeños como 1 o 2 se pueden poner desde los dos lados.
 - Un doble toque los devuelve al neutro.
 
 ## Actualizaciones

@@ -9,6 +9,7 @@
     hsl,
     banda = $bindable(0),
     directo,
+    detectadas = [],
     ondirecto,
     oncambio,
     onfin,
@@ -18,6 +19,8 @@
     banda?: number;
     /** Canal que cambia el ajuste sobre la foto, o `null` si está apagado. */
     directo: CanalHsl | null;
+    /** Los colores que ajustan el detectado sobre la foto (se resaltan). */
+    detectadas?: number[];
     ondirecto: (c: CanalHsl | null) => void;
     oncambio: (canal: CanalHsl, banda: number, v: number) => void;
     onfin: () => void;
@@ -68,6 +71,7 @@
       aria-checked={banda === i}
       aria-label={b.nombre}
       class:activo={banda === i}
+      class:detectada={directo !== null && detectadas.includes(i)}
       style:--c="hsl({b.tono} 85% 55%)"
       onclick={() => (banda = i)}
     >
@@ -139,6 +143,13 @@
   }
   .colores .activo {
     box-shadow: 0 0 0 2px var(--texto);
+  }
+  /* El color que ajusta lo detectado sobre la foto: un anillo de acento. */
+  .colores .detectada {
+    box-shadow: 0 0 0 2px var(--acento), 0 0 10px 2px var(--acento);
+  }
+  .colores .activo.detectada {
+    box-shadow: 0 0 0 2px var(--texto), 0 0 0 4px var(--acento), 0 0 12px 3px var(--acento);
   }
   .punto {
     position: absolute;

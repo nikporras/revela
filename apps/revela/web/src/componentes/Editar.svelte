@@ -32,6 +32,7 @@
     seccion = $bindable('luz'),
     bandaMezcla = $bindable(0),
     directo,
+    detectadas = [],
     ondirecto,
     oncambio,
     oncurva,
@@ -46,6 +47,7 @@
     seccion?: Seccion;
     bandaMezcla?: number;
     directo: CanalHsl | null;
+    detectadas?: number[];
     ondirecto: (c: CanalHsl | null) => void;
     oncambio: (id: IdSlider, v: number) => void;
     oncurva: (canal: Canal, puntos: Punto[]) => void;
@@ -89,7 +91,7 @@
   >
     {#snippet panel(id)}
       {#if id === 'mezcla'}
-        <Mezcla hsl={receta.hsl} bind:banda={bandaMezcla} {directo} {ondirecto} oncambio={onhsl} {onfin} />
+        <Mezcla hsl={receta.hsl} bind:banda={bandaMezcla} {directo} {detectadas} {ondirecto} oncambio={onhsl} {onfin} />
       {:else if id === 'gradacion'}
         <Gradacion gradacion={receta.gradacion} {onrueda} {onmezcla} {onbalance} {onfin} />
       {/if}

@@ -47,7 +47,7 @@
 <input
   class="rueda"
   type="range"
-  use:iman={{ zona: 0.4 }}
+  use:iman
   aria-label="Enderezar"
   min={-ANGULO_MAX}
   max={ANGULO_MAX}
