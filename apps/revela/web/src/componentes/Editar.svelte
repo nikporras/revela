@@ -2,7 +2,7 @@
   export type Seccion = 'luz' | 'color' | 'efectos' | 'curvas';
 
   /** El control elegido en cada sección: se recuerda al ir a otra pestaña y volver. */
-  const elegidos = $state({ luz: 'exposicion', color: 'temperatura' });
+  const elegidos = $state({ luz: 'exposicion', color: 'temperatura', efectos: 'vineta' });
 </script>
 
 <script lang="ts">
@@ -11,6 +11,7 @@
   import Curvas from './Curvas.svelte';
   import Mezcla from './Mezcla.svelte';
   import Gradacion from './Gradacion.svelte';
+  import VinetaPanel from './Vineta.svelte';
   import {
     COLOR,
     LUZ,
@@ -24,6 +25,7 @@
     type Punto,
     type Receta,
     type Rueda,
+    type Vineta,
   } from '../lib/receta';
 
   let {
@@ -40,6 +42,7 @@
     onrueda,
     onmezcla,
     onbalance,
+    onvineta,
     onfin,
   }: {
     receta: Receta;
@@ -55,6 +58,7 @@
     onrueda: (id: IdRueda, r: Rueda) => void;
     onmezcla: (v: number) => void;
     onbalance: (v: number) => void;
+    onvineta: (campo: keyof Vineta, v: number) => void;
     onfin: () => void;
   } = $props();
 
@@ -62,7 +66,7 @@
   const SECCIONES: { id: Seccion; nombre: string; cambiada: () => boolean }[] = [
     { id: 'luz', nombre: 'Luz', cambiada: () => LUZ.some((id) => s[id] !== 0) },
     { id: 'color', nombre: 'Color', cambiada: () => COLOR.some((id) => s[id] !== 0) || !esHslNeutro(receta.hsl) || !esGradacionNeutra(receta.gradacion) },
-    { id: 'efectos', nombre: 'Efectos', cambiada: () => false },
+    { id: 'efectos', nombre: 'Efectos', cambiada: () => receta.efectos.vineta.cantidad !== 0 },
     { id: 'curvas', nombre: 'Curvas', cambiada: () => Object.values(receta.curvas).some((c) => !esCurvaNeutra(c)) },
   ];
 </script>
@@ -98,7 +102,21 @@
     {/snippet}
   </Sliders>
 {:else if seccion === 'efectos'}
-  <p class="pronto">Viñeta, grano y nitidez llegan en los próximos pasos.</p>
+  <!-- Grano y nitidez llegarán como más botones aquí. -->
+  <Sliders
+    ids={[]}
+    valores={s}
+    bind:activo={elegidos.efectos}
+    extras={[{ id: 'vineta', nombre: 'Viñeta', cambiado: receta.efectos.vineta.cantidad !== 0 }]}
+    {oncambio}
+    {onfin}
+  >
+    {#snippet panel(id)}
+      {#if id === 'vineta'}
+        <VinetaPanel vineta={receta.efectos.vineta} oncambio={onvineta} {onfin} />
+      {/if}
+    {/snippet}
+  </Sliders>
 {:else}
   <Curvas curvas={receta.curvas} {luts} oncambio={oncurva} {onfin} />
 {/if}
@@ -134,11 +152,5 @@
     height: 6px;
     border-radius: 50%;
     background: var(--acento);
-  }
-  .pronto {
-    margin: 12px 16px;
-    color: var(--texto-2);
-    font-size: 14px;
-    text-align: center;
   }
 </style>

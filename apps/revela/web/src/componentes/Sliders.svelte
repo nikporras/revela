@@ -28,7 +28,7 @@
   } = $props();
 
   const defs = $derived(ids.map((id) => SLIDERS.find((s) => s.id === id)!));
-  const elegido = $derived(activo && (ids.includes(activo as IdSlider) || extras.some((x) => x.id === activo)) ? activo : ids[0]);
+  const elegido = $derived(activo && (ids.includes(activo as IdSlider) || extras.some((x) => x.id === activo)) ? activo : (ids[0] ?? extras[0]?.id ?? ''));
   const def = $derived(defs.find((s) => s.id === elegido));
   const valor = $derived(def ? valores[def.id] : 0);
 

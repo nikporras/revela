@@ -25,9 +25,9 @@
   import { actualizarAhora, buscarActualizacion, vigilarActualizaciones, type EstadoActualizacion } from './lib/actualizar';
   import { AJUSTADA, acercar, esAjustada, limitar, mezclar, type Medidas, type Vista } from './lib/zoom';
   import { carpetaRecordada, guardarEnCarpeta, nombreBase as elegirNombreBase, soportaCarpeta } from './lib/guardar';
-  import { Revelador, hayWebGL2, type ParametrosGpu, type PlanoGpu } from './lib/gpu';
+  import { Revelador, hayWebGL2, type MarcoVineta, type ParametrosGpu, type PlanoGpu } from './lib/gpu';
   import { FILTROS, recetasDeFiltros, type Filtro } from './lib/filtros';
-  import { BANDAS, aCameraRaw, esVacia, nombreVisible, pesosBandas, recetaVacia, tonoYSaturacion, type Canal, type CanalHsl, type IdRueda, type IdSlider, type Punto, type Receta, type Rueda } from './lib/receta';
+  import { BANDAS, aCameraRaw, esVacia, nombreVisible, pesosBandas, recetaVacia, tonoYSaturacion, type Canal, type CanalHsl, type IdRueda, type IdSlider, type Punto, type Receta, type Rueda, type Vineta } from './lib/receta';
   import { probar, recetasDePrueba, TOLERANCIA, type MotorDePrueba } from './lib/autoprueba';
   import type { FormatoExport, InfoFoto, Previa } from './lib/protocolo';
   import {
@@ -148,6 +148,7 @@
       ultimosParams = params;
       ultimoPlano = plano;
       luts = params.luts;
+      if (revelador) revelador.marco = marcoVineta([0, 0, 1, 1], plano.ancho, plano.alto);
       if (!comparando) {
         revelador?.dibujar(params, plano);
         if (cajaDetalle) detalle?.dibujar(params, null);
@@ -167,6 +168,24 @@
     },
     (e) => (error = `No se pudo aplicar el ajuste: ${e.message}`),
   );
+
+  /**
+   * Dónde cae el encuadre final en un lienzo que muestra la ventana `v` (fracciones) del encuadre
+   * de la previa a `lw`×`lh` px: la viñeta va sobre el encuadre final, también en Recortar (donde
+   * se ve el marco entero) y en la zona nítida del zoom. Unidades: píxeles de la previa.
+   */
+  function marcoVineta(v: [number, number, number, number], lw: number, lh: number): MarcoVineta | null {
+    const P = ultimoPlano;
+    if (!P) return null;
+    const r = pestana === 'recortar' ? receta.geometria.recorte : null;
+    const [rx, ry, rw, rh] = r ? [r[0] - r[2] / 2, r[1] - r[3] / 2, r[2], r[3]] : [0, 0, 1, 1];
+    return {
+      esc: [((v[2] - v[0]) * P.ancho) / lw, ((v[3] - v[1]) * P.alto) / lh],
+      off: [(v[0] - rx) * P.ancho, (v[1] - ry) * P.alto],
+      ancho: rw * P.ancho,
+      alto: rh * P.alto,
+    };
+  }
 
   /** Encuadre de la previa: mientras se recorta se ve el marco entero (con el recorte encima). */
   const geometriaPrevia = () => geometriaJson($state.snapshot(receta.geometria), pestana === 'recortar');
@@ -353,6 +372,11 @@
 
   function cambiarBalance(v: number) {
     receta.gradacion.balance = v;
+    aplicar();
+  }
+
+  function cambiarVineta(campo: keyof Vineta, v: number) {
+    receta.efectos.vineta[campo] = v;
     aplicar();
   }
 
@@ -889,6 +913,7 @@
     }
     if (!detalle || clave !== claveVista() || gesto) return;
     detalle.cargar(tam[0], tam[1], px);
+    detalle.marco = marcoVineta(ventana, tam[0], tam[1]);
     detalle.dibujar(comparando ? null : ultimosParams, null);
     geoDetalle = geo;
     cajaDetalle = caja;
@@ -1371,6 +1396,7 @@
             onrueda={cambiarRueda}
             onmezcla={cambiarMezcla}
             onbalance={cambiarBalance}
+            onvineta={cambiarVineta}
             onfin={confirmar}
           />
         {:else}

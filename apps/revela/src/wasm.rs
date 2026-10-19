@@ -47,7 +47,7 @@ impl Revela {
     /// La previa con los ajustes y la geometría aplicados por el motor (para compararla con la GPU).
     #[wasm_bindgen(js_name = developPreview)]
     pub fn develop_preview(&self, max_side: u32, ajustes_json: &str, geometria_json: &str) -> Result<JsValue, JsError> {
-        let a = ajustes::sanear(ajustes_json).map_err(js_err)?;
+        let a = ajustes::revelado(ajustes_json).map_err(js_err)?;
         let g = Geometria::de_json(geometria_json).map_err(js_err)?;
         preview_js(self.editor.develop_preview(max_side, &a, &g).map_err(js_err)?)
     }
@@ -81,7 +81,7 @@ impl Revela {
     /// 1..100. `progreso` recibe la fracción hecha (0..1) mientras trabaja.
     pub fn export(&self, format: &str, quality: u8, keep_location: bool, ajustes_json: &str, geometria_json: &str, progreso: &js_sys::Function) -> Result<Vec<u8>, JsError> {
         let format = ExportFormat::parse(format).map_err(js_err)?;
-        let a = ajustes::sanear(ajustes_json).map_err(js_err)?;
+        let a = ajustes::revelado(ajustes_json).map_err(js_err)?;
         let g = Geometria::de_json(geometria_json).map_err(js_err)?;
         let avisar = |f: f32| {
             let _ = progreso.call1(&JsValue::NULL, &JsValue::from_f64(f64::from(f)));
@@ -125,7 +125,7 @@ fn preview_js(p: Preview) -> Result<JsValue, JsError> {
 /// `Float32Array` para que la GPU reciba exactamente los `f32` que usa el motor.
 #[wasm_bindgen(js_name = gpuParams)]
 pub fn gpu_params(ajustes_json: &str) -> Result<JsValue, JsError> {
-    let g = ajustes::Gpu::de(&ajustes::sanear(ajustes_json).map_err(js_err)?);
+    let g = ajustes::Gpu::de_revelado(&ajustes::revelado(ajustes_json).map_err(js_err)?);
     let o = js_sys::Object::new();
     let set = |k: &str, v: JsValue| js_sys::Reflect::set(&o, &JsValue::from_str(k), &v).map(|_| ());
     let f32s = |v: &[f32]| JsValue::from(js_sys::Float32Array::from(v));
@@ -146,6 +146,11 @@ pub fn gpu_params(ajustes_json: &str) -> Result<JsValue, JsError> {
         .and(set("tints", f32s(&tints)))
         .and(set("lums", f32s(&g.lums)))
         .and(set("blendBalance", f32s(&[g.blend, g.balance])))
+        // Viñeta: [amt, round, pw, edge0, edge1, hl, estilo] (amt = 0: sin viñeta).
+        .and(set(
+            "vineta",
+            f32s(&g.vineta.map_or([0.0; 7], |k| [k.amt, k.round, k.pw, k.edge0, k.edge1, k.hl, k.estilo.indice() as f32])),
+        ))
         .map_err(|_| JsError::new("no se pudo preparar la respuesta"))?;
     Ok(o.into())
 }

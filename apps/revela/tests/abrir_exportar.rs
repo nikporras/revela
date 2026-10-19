@@ -150,8 +150,9 @@ fn adjusted_export_matches_the_engines_camera_raw_filter() {
     let json = r#"{"temperature": 20, "tint": -10, "exposure": 0.3, "contrast": 35, "vibrance": 30, "saturation": -10,
         "curveShadows": 30, "curveHighlights": -25, "pointCurve": [[0, 10], [128, 140], [255, 245]],
         "hslHue": [10, 0, 0, 0, 0, -15, 0, 0], "hslSat": [0, 20, 0, -30, 0, 25, 0, 0],
-        "gradeShadows": {"hue": 195, "sat": 28, "lum": 0}, "gradeHighlights": {"hue": 35, "sat": 22, "lum": 0}}"#;
-    let ajustes = revela_core::ajustes::sanear(json).unwrap();
+        "gradeShadows": {"hue": 195, "sat": 28, "lum": 0}, "gradeHighlights": {"hue": 35, "sat": 22, "lum": 0},
+        "vignetteAmount": -45, "vignetteMidpoint": 35, "vignetteFeather": 70, "vignetteHighlights": 30}"#;
+    let ajustes = revela_core::ajustes::revelado(json).unwrap();
     let mut ed = Editor::new();
     ed.open("a.png", &src, 24.0, 2048).unwrap();
     let ours = photocraft_codecs::decode(&ed.export(ExportSettings { format: ExportFormat::Png, ..Default::default() }, &ajustes, &Default::default(), &|_| {}).unwrap()).unwrap();
@@ -179,7 +180,7 @@ fn transparency_is_kept_in_png_and_matted_in_jpg() {
     assert!(j.data()[..3].iter().all(|v| *v > 245), "{:?}", &j.data()[..3]);
 }
 
-fn png_bytes(ed: &Editor, ajustes: &photocraft_algo::camera_raw::CameraRaw, geom: &revela_core::geometria::Geometria) -> Image {
+fn png_bytes(ed: &Editor, ajustes: &revela_core::ajustes::Revelado, geom: &revela_core::geometria::Geometria) -> Image {
     let b = ed.export(ExportSettings { format: ExportFormat::Png, ..Default::default() }, ajustes, geom, &|_| {}).unwrap();
     photocraft_codecs::decode(&b).unwrap()
 }
@@ -223,7 +224,7 @@ fn tiled_export_matches_the_preview_sampling_with_no_seams() {
     let src = png(700, 520, false);
     let mut ed = Editor::new();
     ed.open("a.png", &src, 24.0, 4096).unwrap();
-    let ajustes = revela_core::ajustes::sanear(r#"{"exposure": 0.3, "contrast": 25, "vibrance": 20}"#).unwrap();
+    let ajustes = revela_core::ajustes::revelado(r#"{"exposure": 0.3, "contrast": 25, "vibrance": 20, "vignetteAmount": -55, "vignetteRoundness": 40}"#).unwrap();
     for json in [r#"{"angulo": 12.5, "recorte": [0.5, 0.5, 0.6, 0.6]}"#, r#"{"giro": 1, "espejoH": true, "angulo": -7, "recorte": [0.45, 0.55, 0.7, 0.5]}"#] {
         let g = revela_core::geometria::Geometria::de_json(json).unwrap();
         let exp = png_bytes(&ed, &ajustes, &g);

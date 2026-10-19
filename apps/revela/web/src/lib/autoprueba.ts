@@ -67,6 +67,11 @@ export function recetasDePrueba(extra: Receta[] = []): Receta[] {
     { nombre: 'curvas RGB', json: '{"pointCurveRed":[[0,0],[128,150],[255,255]],"pointCurveGreen":[[0,10],[255,240]],"pointCurveBlue":[[0,30],[128,110],[255,230]]}' },
     { nombre: 'HSL', json: '{"hslHue":[30,-20,15,40,-30,20,-10,25],"hslSat":[50,-40,30,-60,40,60,-20,10],"hslLum":[20,-30,10,-40,30,-20,40,-10]}' },
     { nombre: 'gradación', json: '{"gradeShadows":{"hue":195,"sat":80,"lum":-30},"gradeMidtones":{"hue":300,"sat":40,"lum":10},"gradeHighlights":{"hue":35,"sat":70,"lum":20},"gradeGlobal":{"hue":120,"sat":20,"lum":0},"gradeBlending":80,"gradeBalance":-40}' },
+    { nombre: 'viñeta −70', json: '{"vignetteAmount":-70}' },
+    { nombre: 'viñeta +60 redonda', json: '{"vignetteAmount":60,"vignetteMidpoint":20,"vignetteRoundness":80,"vignetteFeather":90}' },
+    { nombre: 'viñeta −90 rectangular con luces', json: '{"vignetteAmount":-90,"vignetteMidpoint":70,"vignetteRoundness":-60,"vignetteFeather":10,"vignetteHighlights":80,"exposure":1}' },
+    { nombre: 'viñeta prioridad color', json: '{"vignetteAmount":-60,"vignetteStyle":"colorPriority","saturation":40}' },
+    { nombre: 'viñeta pintura', json: '{"vignetteAmount":50,"vignetteStyle":"paintOverlay"}' },
     {
       nombre: 'todo fuerte',
       json: `{"temperature":40,"tint":-20,"exposure":0.7,"contrast":60,"vibrance":50,"saturation":-20,"curveShadows":60,"curveHighlights":-60,${curva},"hslSat":[0,30,0,-40,0,50,0,0],"gradeShadows":{"hue":195,"sat":40,"lum":0},"gradeHighlights":{"hue":35,"sat":30,"lum":0}}`,
@@ -95,6 +100,8 @@ export function recetasDePrueba(extra: Receta[] = []): Receta[] {
         hslLum: Array.from({ length: 8 }, () => v(-100, 100)),
         gradeShadows: { hue: v(0, 360), sat: v(0, 100), lum: v(-50, 50) },
         gradeHighlights: { hue: v(0, 360), sat: v(0, 100), lum: v(-50, 50) },
+        // La mitad, con viñeta.
+        ...(i % 2 ? { vignetteAmount: v(-100, 100), vignetteMidpoint: v(0, 100), vignetteRoundness: v(-100, 100), vignetteFeather: v(0, 100), vignetteHighlights: v(0, 100) } : {}),
       }),
     });
   }
@@ -113,7 +120,7 @@ export const GEOMETRIAS: { nombre: string; json: string }[] = [
 
 /** Recetas de color que se cruzan con los encuadres (no todas: sería muy lento en el teléfono). */
 function recetasConGeometria(todas: Receta[]): Receta[] {
-  const nombres = ['sin ajustes', 'todo fuerte', 'azar 3', 'azar 9'];
+  const nombres = ['sin ajustes', 'todo fuerte', 'azar 3', 'azar 9', 'viñeta −90 rectangular con luces'];
   const filtro = todas.find((r) => r.nombre.startsWith('filtro '));
   return todas.filter((r) => nombres.includes(r.nombre)).concat(filtro ? [filtro] : []);
 }

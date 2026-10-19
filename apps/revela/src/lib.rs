@@ -4,6 +4,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod ajustes;
+pub mod efectos;
 pub mod geometria;
 pub mod metadata;
 #[cfg(target_arch = "wasm32")]
@@ -12,7 +13,8 @@ mod wasm;
 use std::fmt;
 use std::sync::Arc;
 
-use photocraft_algo::camera_raw::{CameraRaw, develop};
+use ajustes::Revelado;
+use photocraft_algo::camera_raw::develop;
 use photocraft_doc::Document;
 use geometria::{Geometria, bilineal};
 use photocraft_engine::Session;
@@ -179,7 +181,7 @@ impl Editor {
 
     /// La misma previa con los ajustes aplicados **por el motor** (lo que hará la exportación).
     /// Sirve para comprobar que el shader de la GPU da lo mismo.
-    pub fn develop_preview(&self, max_side: u32, ajustes: &CameraRaw, geom: &Geometria) -> Result<Preview> {
+    pub fn develop_preview(&self, max_side: u32, ajustes: &Revelado, geom: &Geometria) -> Result<Preview> {
         let base = self.preview(max_side)?;
         let (bw, bh) = (base.width, base.height);
         let plano = geom.plano(bw, bh);
@@ -199,7 +201,11 @@ impl Editor {
                 })
                 .collect()
         };
-        develop(&mut px, w, h, ajustes, false);
+        // Sin recortar a 0..1 hasta después de la viñeta, como el motor (`to_u8` recorta).
+        develop(&mut px, w, h, &ajustes.raw, true);
+        if ajustes.vineta.activa() {
+            ajustes.vineta.plano(plano.ancho, plano.alto).aplicar(&mut px, w, 0, 0);
+        }
         let pixels = px.iter().flat_map(|q| [to_u8(q[0]), to_u8(q[1]), to_u8(q[2]), to_u8(q[3])]).collect();
         Ok(Preview { width: plano.ancho, height: plano.alto, pixels })
     }
@@ -252,7 +258,7 @@ impl Editor {
     /// Codifica la foto a resolución de trabajo completa con los ajustes. El motor compone la
     /// foto **por franjas** y revela cada una por separado (los ajustes son por píxel, así que no
     /// hay costuras): la memoria no pasa de la foto, su salida de 8 bits y una franja.
-    pub fn export(&self, settings: ExportSettings, ajustes: &CameraRaw, geom: &Geometria, progreso: &dyn Fn(f32)) -> Result<Vec<u8>> {
+    pub fn export(&self, settings: ExportSettings, ajustes: &Revelado, geom: &Geometria, progreso: &dyn Fn(f32)) -> Result<Vec<u8>> {
         let doc = self.doc()?;
         let plano = geom.plano(doc.size.width, doc.size.height);
         let (w, h) = (plano.ancho as usize, plano.alto as usize);
@@ -302,8 +308,10 @@ const BLOQUE: u32 = 256;
 /// Sin geometría, el motor compone la foto por franjas. Con geometría, la salida se recorre por
 /// bloques: cada uno pide al motor solo la zona de la foto que cubre ([`geometria::Plano::huella`])
 /// y la remuestrea con el mismo bilineal que la GPU. La memoria no pasa de la salida y un bloque.
-fn revelar(doc: &Document, ajustes: &CameraRaw, geom: &Geometria, canales: usize, progreso: &dyn Fn(f32)) -> Result<(Vec<u8>, bool)> {
+fn revelar(doc: &Document, ajustes: &Revelado, geom: &Geometria, canales: usize, progreso: &dyn Fn(f32)) -> Result<(Vec<u8>, bool)> {
     let plano = geom.plano(doc.size.width, doc.size.height);
+    // La viñeta, con coordenadas del encuadre entero (no de cada franja o bloque).
+    let vineta = ajustes.vineta.activa().then(|| ajustes.vineta.plano(plano.ancho, plano.alto));
     let (w, h) = (plano.ancho as usize, plano.alto as usize);
     let canvas = doc.bounds();
     let len = w.checked_mul(h).and_then(|n| n.checked_mul(canales)).ok_or_else(|| Error("foto demasiado grande".into()))?;
@@ -332,7 +340,10 @@ fn revelar(doc: &Document, ajustes: &CameraRaw, geom: &Geometria, canales: usize
         photocraft_compose::render_bands(doc, canvas, FILAS_FRANJA, |mut band| -> Result<()> {
             let y0 = usize::try_from(band.rect.y0 - canvas.y0).map_err(|_| Error("franja fuera de la foto".into()))?;
             let n = band.rect.height() as usize;
-            develop(&mut band.px, w, n, ajustes, false);
+            develop(&mut band.px, w, n, &ajustes.raw, true);
+            if let Some(v) = &vineta {
+                v.aplicar(&mut band.px, w, 0, y0);
+            }
             escribir(&band.px, 0, y0, w)?;
             progreso((y0 + n) as f32 / h.max(1) as f32);
             Ok(())
@@ -342,7 +353,10 @@ fn revelar(doc: &Document, ajustes: &CameraRaw, geom: &Geometria, canales: usize
     let total = (plano.ancho.div_ceil(BLOQUE) * plano.alto.div_ceil(BLOQUE)).max(1) as f32;
     let mut hechos = 0.0;
     por_bloques(doc, &plano, |px, u0, v0, tw, th| {
-        develop(px, tw, th, ajustes, false);
+        develop(px, tw, th, &ajustes.raw, true);
+        if let Some(v) = &vineta {
+            v.aplicar(px, tw, u0 as usize, v0 as usize);
+        }
         escribir(px, u0 as usize, v0 as usize, tw)?;
         hechos += 1.0;
         progreso(hechos / total);

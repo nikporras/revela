@@ -132,6 +132,21 @@ export interface Gradacion {
 
 export const MEZCLA_DEFECTO = 50;
 
+/** La viñeta (como la de Lightroom): cantidad −100..100 (negativa oscurece los bordes). */
+export interface Vineta {
+  cantidad: number;
+  /** 0..100: lo lejos del centro que empieza (50 por defecto, como el motor). */
+  punto: number;
+  /** −100..100: 0 sigue la forma de la foto, 100 un círculo, −100 un rectángulo redondeado. */
+  redondez: number;
+  /** 0..100: lo suave del borde (50 por defecto). */
+  difuminado: number;
+  /** 0..100: cuánto atraviesan las luces una viñeta que oscurece. */
+  luces: number;
+}
+
+export const VINETA_DEFECTO: Vineta = { cantidad: 0, punto: 50, redondez: 0, difuminado: 50, luces: 0 };
+
 export type Punto = [number, number];
 export type Canal = 'master' | 'red' | 'green' | 'blue';
 
@@ -144,6 +159,7 @@ export interface Receta {
   /** Mezcla de color: 8 valores por canal (−100..100). */
   hsl: Record<CanalHsl, number[]>;
   gradacion: Gradacion;
+  efectos: { vineta: Vineta };
 }
 
 export const DIAGONAL: Punto[] = [
@@ -159,6 +175,7 @@ export function recetaVacia(): Receta {
     geometria: geometriaVacia(),
     hsl: { tono: ceros(), saturacion: ceros(), luminancia: ceros() },
     gradacion: gradacionVacia(),
+    efectos: { vineta: { ...VINETA_DEFECTO } },
   };
 }
 
@@ -185,13 +202,15 @@ export function esCurvaNeutra(c: Punto[]): boolean {
 }
 
 export function esVacia(r: Receta): boolean {
-  return Object.values(r.sliders).every((v) => v === 0) && Object.values(r.curvas).every(esCurvaNeutra) && !r.filtro && esGeometriaVacia(r.geometria) && esHslNeutro(r.hsl) && esGradacionNeutra(r.gradacion);
+  return Object.values(r.sliders).every((v) => v === 0) && Object.values(r.curvas).every(esCurvaNeutra) && !r.filtro && esGeometriaVacia(r.geometria) && esHslNeutro(r.hsl) && esGradacionNeutra(r.gradacion) && r.efectos.vineta.cantidad === 0;
 }
 
 type Ajustes = Record<string, unknown>;
 
-const ESCALARES = ['exposure', 'contrast', 'temperature', 'tint', 'saturation', 'vibrance', 'curveShadows', 'curveDarks', 'curveLights', 'curveHighlights'];
+const ESCALARES = ['exposure', 'contrast', 'temperature', 'tint', 'saturation', 'vibrance', 'curveShadows', 'curveDarks', 'curveLights', 'curveHighlights', 'vignetteAmount'];
 const LIMITE: Record<string, number> = { exposure: 5 };
+/** Ajustes cuyo valor por defecto en el motor no es 0. */
+const CON_DEFECTO = new Set(['gradeBlending', 'vignetteMidpoint', 'vignetteFeather']);
 const CLAVE_HSL: Record<CanalHsl, string> = { tono: 'hslHue', saturacion: 'hslSat', luminancia: 'hslLum' };
 const CLAVE_RUEDA: Record<IdRueda, string> = { sombras: 'gradeShadows', medios: 'gradeMidtones', luces: 'gradeHighlights', global: 'gradeGlobal' };
 const CLAVE_CURVA: Record<Canal, string> = { master: 'pointCurve', red: 'pointCurveRed', green: 'pointCurveGreen', blue: 'pointCurveBlue' };
@@ -243,6 +262,15 @@ export function aCameraRaw(r: Receta, filtros: Filtro[]): Ajustes {
     const f = (out[CLAVE_RUEDA[id]] as { hue: number; sat: number; lum: number } | undefined) ?? { hue: 0, sat: 0, lum: 0 };
     out[CLAVE_RUEDA[id]] = sumarRuedas(f, u);
   }
+  // Viñeta: la cantidad se suma a la del filtro; la forma, si el usuario puso viñeta, es la suya.
+  const v = r.efectos.vineta;
+  if (v.cantidad !== 0) {
+    sumar('vignetteAmount', v.cantidad);
+    out.vignetteMidpoint = v.punto;
+    out.vignetteRoundness = v.redondez;
+    out.vignetteFeather = v.difuminado;
+    out.vignetteHighlights = v.luces;
+  }
   const g = r.gradacion;
   if (g.mezcla !== MEZCLA_DEFECTO) out.gradeBlending = g.mezcla;
   if (g.balance !== 0) out.gradeBalance = lim(((out.gradeBalance as number) ?? 0) + g.balance, 100);
@@ -250,8 +278,8 @@ export function aCameraRaw(r: Receta, filtros: Filtro[]): Ajustes {
     if (!esCurvaNeutra(r.curvas[canal])) out[CLAVE_CURVA[canal]] = r.curvas[canal];
   }
   // Quita los ceros: una receta vacía es "{}".
-  // (La mezcla no: su valor por defecto es 50.)
-  for (const [k, v] of Object.entries(out)) if (v === 0 && k !== 'gradeBlending') delete out[k];
+  // (Salvo los que en el motor no valen 0 por defecto: ahí 0 es un valor elegido.)
+  for (const [k, v] of Object.entries(out)) if (v === 0 && !CON_DEFECTO.has(k)) delete out[k];
   return out;
 }
 

@@ -22,6 +22,27 @@ export interface ParametrosGpu {
   tints: Float32Array;
   lums: Float32Array;
   blendBalance: Float32Array;
+  /** Viñeta: [amt, round, pw, edge0, edge1, hl, estilo]; amt = 0, sin viñeta. */
+  vineta: Float32Array;
+}
+
+/**
+ * Dónde está el encuadre final respecto al lienzo, para la viñeta (que depende de la posición):
+ * el centro del píxel `p` del lienzo es el punto `(p + ½)·esc + off` de un encuadre de
+ * `ancho`×`alto`. Por defecto, el lienzo entero (`esc` 1, `off` 0).
+ */
+export interface MarcoVineta {
+  esc: [number, number];
+  off: [number, number];
+  ancho: number;
+  alto: number;
+}
+
+/** Semiejes de la viñeta (como `efectos::ejes` en el núcleo). */
+function ejes(round: number, cx: number, cy: number): [number, number] {
+  if (round < 0) return [cx, cy];
+  const r = Math.min(cx, cy) + (Math.max(cx, cy) - Math.min(cx, cy)) * (1 - round);
+  return [cx >= cy ? r : cx, cy > cx ? r : cy];
 }
 
 /** Encuadre: tamaño de la salida y transformación salida → foto (ver `geometria.rs`). */
@@ -69,6 +90,17 @@ uniform vec3 uTint[4];
 uniform float uLum[4];
 uniform float uBlend;
 uniform float uBal;
+// Viñeta (efectos.rs en el núcleo): constantes y posición en el encuadre final.
+uniform bool uVin;
+uniform float uVinAmt;
+uniform float uVinPw;
+uniform vec2 uVinBordes;
+uniform float uVinHl;
+uniform int uVinEstilo;
+uniform vec2 uVinEsc;
+uniform vec2 uVinOff;
+uniform vec2 uVinCentro;
+uniform vec2 uVinEje;
 out vec4 salida;
 
 const float TAU = 6.2831855;
@@ -229,6 +261,29 @@ void main() {
       }
     }
   }
+  // 9. Viñeta, antes de recortar a 0..1 (como el motor).
+  if (uVin) {
+    vec2 q = (vec2(p) + 0.5) * uVinEsc + uVinOff;
+    vec2 d = abs((q - uVinCentro) / uVinEje);
+    float r = pow(pow(d.x, uVinPw) + pow(d.y, uVinPw), 1.0 / uVinPw);
+    float m = suave(uVinBordes.x, uVinBordes.y, r);
+    if (m > 0.0) {
+      float l = clamp(luma(c), 0.0, 1.0);
+      if (uVinEstilo == 2) {
+        float objetivo = uVinAmt < 0.0 ? 0.0 : 1.0;
+        c += (objetivo - c) * (m * abs(uVinAmt));
+      } else {
+        float f = exp2(uVinAmt * 2.0 * m);
+        if (uVinAmt < 0.0 && uVinHl > 0.0) {
+          // Las luces atraviesan una viñeta que oscurece.
+          float protege = suave(0.6, 1.0, l) * uVinHl;
+          f += (1.0 - f) * protege;
+        }
+        if (uVinEstilo == 1) c += l * f - l;
+        else c *= f;
+      }
+    }
+  }
   salida = vec4(clamp(c, 0.0, 1.0), src.a);
 }`;
 
@@ -252,6 +307,8 @@ export class Revelador {
   alto = 0;
   /** Tamaño de lo último dibujado. */
   salida: [number, number] = [0, 0];
+  /** Dónde está el encuadre final en el lienzo (viñeta); `null`: el lienzo entero. */
+  marco: MarcoVineta | null = null;
 
   constructor(readonly lienzo: HTMLCanvasElement) {
     const gl = lienzo.getContext('webgl2', { antialias: false, premultipliedAlpha: false, preserveDrawingBuffer: true });
@@ -311,6 +368,7 @@ export class Revelador {
     gl.uniform1i(this.loc('uWb'), nada || !p.wb ? 0 : 1);
     gl.uniform1f(this.loc('uConK'), nada ? 0 : p.contrastK[0]);
     gl.uniform1i(this.loc('uColor'), nada || !p.color ? 0 : 1);
+    if (nada) gl.uniform1i(this.loc('uVin'), 0);
     if (p) {
       gl.uniform3fv(this.loc('uGain'), p.gain);
       gl.uniform1f(this.loc('uSat'), p.satVib[0]);
@@ -325,6 +383,22 @@ export class Revelador {
       gl.uniform1fv(this.loc('uLum'), p.lums);
       gl.uniform1f(this.loc('uBlend'), p.blendBalance[0]);
       gl.uniform1f(this.loc('uBal'), p.blendBalance[1]);
+      const v = p.vineta;
+      gl.uniform1i(this.loc('uVin'), v && v[0] !== 0 ? 1 : 0);
+      if (v && v[0] !== 0) {
+        const m = this.marco ?? { esc: [1, 1], off: [0, 0], ancho: w, alto: h };
+        const [cx, cy] = [Math.fround(m.ancho / 2), Math.fround(m.alto / 2)];
+        const [ax, ay] = ejes(v[1], cx, cy);
+        gl.uniform1f(this.loc('uVinAmt'), v[0]);
+        gl.uniform1f(this.loc('uVinPw'), v[2]);
+        gl.uniform2f(this.loc('uVinBordes'), v[3], v[4]);
+        gl.uniform1f(this.loc('uVinHl'), v[5]);
+        gl.uniform1i(this.loc('uVinEstilo'), v[6]);
+        gl.uniform2f(this.loc('uVinEsc'), m.esc[0], m.esc[1]);
+        gl.uniform2f(this.loc('uVinOff'), m.off[0], m.off[1]);
+        gl.uniform2f(this.loc('uVinCentro'), cx, cy);
+        gl.uniform2f(this.loc('uVinEje'), ax, ay);
+      }
       gl.activeTexture(gl.TEXTURE1);
       gl.bindTexture(gl.TEXTURE_2D, this.lut);
       gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
@@ -342,7 +416,7 @@ export class Revelador {
    */
   muestra(p: ParametrosGpu | null, plano: PlanoGpu | null, x: number, y: number, lado = 7): [number, number, number] {
     const gl = this.gl;
-    this.dibujar(p ? { ...p, hsl: false, grade: false } : null, plano);
+    this.dibujar(p ? { ...p, hsl: false, grade: false, vineta: new Float32Array(7) } : null, plano);
     const [w, h] = this.salida;
     const r = (lado - 1) / 2;
     const x0 = Math.max(0, Math.min(w - lado, Math.round(x) - r));
