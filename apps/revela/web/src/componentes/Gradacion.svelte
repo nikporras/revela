@@ -191,7 +191,7 @@
     width: 82px;
     font-size: 13px;
   }
-  .lado :global(.fila b) {
+  .lado :global(.fila .valor) {
     width: 32px;
   }
   .lado :global(.fila) {
