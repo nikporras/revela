@@ -120,8 +120,8 @@ En línea: https://nikporras.github.io/revela/ (versión `34d0947`). Cada push a
 
 Pestañas: **Recortar · Filtros · Editar**. Editar tiene las secciones **Luz, Color, Efectos y Curvas** (como Lightroom móvil).
 
-1. **Color** (hecho, falta probar en el S25): HSL (8 colores × tono, saturación y luminancia) y gradación (sombras, medios, luces, global, mezcla y balance), con la nueva estructura de pestañas.
-2. **Viñeta** (Efectos), sobre el encuadre final. Copiar la fórmula del motor en Revela con coordenadas globales y comprobarla contra el motor.
+1. **Color** (hecho y probado en el S25): HSL (8 colores × tono, saturación y luminancia) y gradación (sombras, medios, luces, global, mezcla y balance), con la nueva estructura de pestañas.
+2. **Viñeta** (hecho, falta probar en el S25): en Efectos, sobre el encuadre final. Fórmula del motor copiada en Revela con coordenadas globales y comprobada contra el motor.
 3. **Grano** (Efectos). El ruido lo calcula el motor como textura; es aproximado a tamaño de pantalla y exacto al 100 %, con la nota "Míralo al 100 % (doble toque)".
 4. **Volver a traducir los filtros de LightCraft:** vuelven 6 de los 16 excluidos (los que dependen de viñeta y grano).
 5. **Nitidez** (Efectos). Bloques con margen al exportar y varias pasadas en la GPU. Aproximada a tamaño de pantalla y exacta al 100 %, con la misma nota.

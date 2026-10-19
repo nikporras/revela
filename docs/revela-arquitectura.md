@@ -129,6 +129,15 @@ locales; exportar 12 MP con el comando entero gasta 770 MB. Por eso:
   - El balance se suma.
 - Son etapas por píxel que ya estaban en el shader y en la exportación, y la prueba de igualdad ya las cubría (también en extremos).
 
+## Viñeta (Efectos)
+
+- El motor centra la viñeta en el trozo que recibe; al exportar por franjas o bloques saldría una por trozo. Revela usa **la misma fórmula** del motor (`apps/revela/src/efectos.rs`) con coordenadas del encuadre final.
+- Va después del revelado y antes de recortar a 0..1, como en el motor: `develop` se llama con `float = true` y la viñeta se aplica encima.
+- Pruebas: por bloques coincide con el `develop` del motor sobre la imagen entera (< 1e-5), y la exportación por franjas con viñeta coincide con `filter.cameraRaw` (≤ 1/255).
+- En la GPU es una etapa más del shader. Las constantes salen de Rust (`gpuParams.vineta`); la posición la pone la interfaz con un `MarcoVineta` (dónde está el encuadre final en el lienzo). Así sirve igual en la previa, en Recortar (centrada en el recorte, aunque se vea el marco entero) y en la zona nítida del zoom.
+- La prueba de igualdad del CI incluye 5 recetas con viñeta (los tres estilos del motor), también con encuadres.
+- Controles: Cantidad, Punto medio, Redondez, Difuminado y Luces (solo cuando oscurece). La cantidad se suma a la del filtro; la forma, si el usuario pone viñeta, es la suya.
+
 ## Sliders
 
 Todos los sliders con valor neutro (Luz, Color, Mezcla, Gradación, Enderezar) usan `use:iman` (`lib/iman.ts`):

@@ -13,7 +13,23 @@
 
 use photocraft_algo::camera_raw::{CameraRaw, Wheel, curve_lut, develop, validate_curve};
 
+use crate::efectos::Vineta;
 use crate::{Error, Result};
+
+/// Todo lo que se aplica al revelar: los ajustes por píxel del motor y la viñeta (que Revela
+/// aplica con coordenadas del encuadre entero, ver `efectos`).
+#[derive(Debug, Clone, Default)]
+pub struct Revelado {
+    pub raw: CameraRaw,
+    pub vineta: Vineta,
+}
+
+/// La receta del usuario (JSON de Camera Raw) lista para revelar.
+pub fn revelado(json: &str) -> Result<Revelado> {
+    let raw = sanear(json)?;
+    let p: CameraRaw = serde_json::from_str(json).map_err(|e| Error(format!("ajustes no válidos: {e}")))?;
+    Ok(Revelado { raw, vineta: Vineta::de(&p) })
+}
 
 /// Entradas de cada curva que recibe el shader (las mismas que usa `develop`).
 pub const LUT: usize = 1024;
@@ -83,6 +99,8 @@ pub struct Gpu {
     pub lums: [f32; 4],
     pub blend: f32,
     pub balance: f32,
+    /// La viñeta (sus constantes; la posición la pone la interfaz según el encuadre).
+    pub vineta: Option<crate::efectos::Constantes>,
 }
 
 fn luma(c: [f32; 3]) -> f32 {
@@ -94,6 +112,10 @@ fn is_linear(c: &[[f32; 2]]) -> bool {
 }
 
 impl Gpu {
+    pub fn de_revelado(r: &Revelado) -> Gpu {
+        Gpu { vineta: r.vineta.activa().then(|| r.vineta.constantes()), ..Gpu::de(&r.raw) }
+    }
+
     pub fn de(p: &CameraRaw) -> Gpu {
         let wb = !(p.temperature == 0.0 && p.tint == 0.0 && p.exposure == 0.0);
         let mut gain = photocraft_algo::camera_raw::white_balance_gains(p.temperature, p.tint);
@@ -138,6 +160,7 @@ impl Gpu {
             lums: wheels.map(|w| w.lum),
             blend: 0.15 + p.grade_blending.clamp(0.0, 100.0) / 100.0 * 0.35,
             balance: p.grade_balance.clamp(-100.0, 100.0) / 100.0 * 0.25,
+            vineta: None,
         }
     }
 }
