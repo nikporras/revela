@@ -89,9 +89,9 @@ Repo: `github.com/nikporras/revela` (fork de `storytold/photocraft`).
 5. **Producto y redes:** funciones de la versión 2.
 6. **Pulido:** rendimiento, pruebas en Android e iOS, iconos y nombre de Revela.
 
-## Estado actual (19 de octubre de 2026)
+## Estado actual (21 de octubre de 2026)
 
-En línea: https://nikporras.github.io/revela/ (versión `d1c3c67`). Cada push a `main` pasa las pruebas, incluida la de igualdad entre la previa en la GPU y la exportación (376 comparaciones), y si pasan se despliega. Los commits que solo tocan documentación llevan `[skip ci]`.
+En línea: https://nikporras.github.io/revela/ (versión `7fcde8d`). Cada push a `main` pasa las pruebas, incluida la de igualdad entre la previa en la GPU y la exportación (412 comparaciones), y si pasan se despliega. Los commits que solo tocan documentación llevan `[skip ci]`.
 
 ### Hecho
 
@@ -112,6 +112,7 @@ En línea: https://nikporras.github.io/revela/ (versión `d1c3c67`). Cada push a
   - **Recuperar edición:** la foto y la receta con su historial se guardan en IndexedDB; al volver a abrir Revela se recupera, con un aviso y el botón Descartar.
   - **Botón de actualizar:** aviso "Nueva versión disponible · Actualizar" y "Buscar actualización" en ⓘ, sin cerrar la app.
   - **Viñeta** (Efectos): fórmula del motor copiada en Revela con coordenadas del encuadre final; igual en la previa, en Recortar, en el zoom y al exportar.
+- **Color puntual** (Editar › Color › Puntual, como Point Color de Lightroom), **hecho y desplegado** (`7fcde8d`): se elige el color en la foto con la lupa; Rango, tono (±45°), saturación y luminancia solo de ese color; vista de zonas afectadas; hasta 8 colores. Es una etapa de Revela (`efectos.rs`) tras el HSL y la gradación, igual en la GPU y al exportar.
 - **Probado en el S25 Ultra:**
   - Ajustes en vivo: 1–3 ms de mediana.
   - "Probar GPU": 376 comparaciones, diferencia máxima 1/255.
@@ -120,12 +121,18 @@ En línea: https://nikporras.github.io/revela/ (versión `d1c3c67`). Cada push a
 
 ### Falta probar
 
+- **Color puntual en el S25:**
+  - distinguir rosa de rojo;
+  - el Rango con "Ver zonas" activado;
+  - varios colores a la vez;
+  - exportar y comparar con la pantalla;
+  - "Probar GPU" (412 comparaciones).
 - **Botón Cámara:** el nombre del archivo exportado y el aviso con X (no debe volver a salir una vez cerrado).
 - **Safari de iOS:** todavía sin probar.
 
 ### Lo siguiente (en este orden)
 
-1. **Color puntual** (hecho, falta probar en el S25) en Editar › Color › Puntual (como Point Color de Lightroom): color exacto con la lupa, Rango, tono, saturación y luminancia solo de ese color, vista de zonas afectadas, y hasta 8 colores puntuales.
+1. **Color puntual, si hace falta tras la prueba:** rango por luminancia y por saturación (además del Rango general), para separar colores de tono parecido.
 2. **Grano** (Efectos). El ruido lo calcula el motor como textura; es aproximado a tamaño de pantalla y exacto al 100 %, con la nota "Míralo al 100 % (doble toque)".
 3. **Volver a traducir los filtros de LightCraft:** vuelven 6 de los 16 excluidos (los que dependen de viñeta y grano).
 4. **Nitidez** (Efectos). Bloques con margen al exportar y varias pasadas en la GPU. Aproximada a tamaño de pantalla y exacta al 100 %, con la misma nota.
