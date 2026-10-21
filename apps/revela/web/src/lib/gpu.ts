@@ -24,7 +24,12 @@ export interface ParametrosGpu {
   blendBalance: Float32Array;
   /** Viñeta: [amt, round, pw, edge0, edge1, hl, estilo]; amt = 0, sin viñeta. */
   vineta: Float32Array;
+  /** Colores puntuales: 9 números cada uno (ver `efectos.rs`). */
+  puntuales: Float32Array;
 }
+
+/** Como mucho, tantos colores puntuales (`MAX_PUNTUALES` en el núcleo). */
+export const MAX_PUNTUALES = 8;
 
 /**
  * Dónde está el encuadre final respecto al lienzo, para la viñeta (que depende de la posición):
@@ -101,6 +106,11 @@ uniform vec2 uVinEsc;
 uniform vec2 uVinOff;
 uniform vec2 uVinCentro;
 uniform vec2 uVinEje;
+// Colores puntuales (efectos.rs): 9 números cada uno; y cuál se resalta (vista de zonas
+// afectadas, solo en la previa; −1: ninguno).
+uniform int uPuntos;
+uniform float uPunto[${9 * 8}];
+uniform int uPuntoVer;
 out vec4 salida;
 
 const float TAU = 6.2831855;
@@ -153,6 +163,17 @@ vec3 hsv2rgb(float h, float s, float v) {
   else if (i == 4) r = vec3(x, 0.0, c);
   else r = vec3(c, 0.0, x);
   return r + (v - c);
+}
+
+// Cuánto se parece un color (HSV) al color puntual i: ConstPuntual::peso en efectos.rs.
+float pesoPunto(int i, vec3 hsv) {
+  int b = i * 9;
+  float dh = abs(mod(hsv.x - uPunto[b] + 540.0, 360.0) - 180.0);
+  float fh = 1.0 - suave(uPunto[b + 3] * 0.5, uPunto[b + 3], dh);
+  float fs = 1.0 - suave(uPunto[b + 4] * 0.5, uPunto[b + 4], abs(hsv.y - uPunto[b + 1]));
+  float fv = 1.0 - suave(uPunto[b + 5] * 0.5, uPunto[b + 5], abs(hsv.z - uPunto[b + 2]));
+  // En los grises el tono no significa nada: no se tocan.
+  return fh * fs * fv * suave(0.02, 0.1, hsv.y);
 }
 
 // Bilineal con los centros de píxel en i + ½ y los vecinos sujetos al borde; fuera de la foto,
@@ -261,6 +282,32 @@ void main() {
       }
     }
   }
+  // 8. Color puntual (Revela, efectos.rs): después del HSL y la gradación.
+  float wVer = 0.0;
+  // El color antes de los colores puntuales (para la vista de zonas afectadas).
+  vec3 cPunto = c;
+  if (uPuntos > 0) {
+    if (uPuntoVer >= 0) {
+      vec3 h0 = rgb2hsv(max(c, 0.0));
+      wVer = h0.y > 1e-4 ? pesoPunto(uPuntoVer, h0) : 0.0;
+    }
+    for (int i = 0; i < ${8}; i++) {
+      if (i >= uPuntos) break;
+      vec3 hsv = rgb2hsv(max(c, 0.0));
+      if (hsv.y <= 1e-4) continue;
+      float w = pesoPunto(i, hsv);
+      if (w <= 0.0) continue;
+      int b = i * 9;
+      float ns = clamp(hsv.y * (1.0 + w * uPunto[b + 7]), 0.0, 1.0);
+      vec3 o = hsv2rgb(hsv.x + w * uPunto[b + 6], ns, hsv.z);
+      // Se conserva la luminancia y luego se aplica su cambio (como el HSL del motor).
+      float l0 = luma(c);
+      float l1 = luma(o);
+      if (l1 > 1e-6) o = o * l0 / l1;
+      c = o * exp2(w * uPunto[b + 8]);
+    }
+  }
+
   // 9. Viñeta, antes de recortar a 0..1 (como el motor).
   if (uVin) {
     vec2 q = (vec2(p) + 0.5) * uVinEsc + uVinOff;
@@ -284,7 +331,14 @@ void main() {
       }
     }
   }
-  salida = vec4(clamp(c, 0.0, 1.0), src.a);
+  c = clamp(c, 0.0, 1.0);
+  // Vista de zonas afectadas: lo que toca el color puntual con sus colores de antes del ajuste
+  // (si no, un color quitado a −100 también se vería gris), y el resto en gris.
+  if (uPuntoVer >= 0) {
+    vec3 a = clamp(cPunto, 0.0, 1.0);
+    c = mix(vec3(luma(a)), a, wVer);
+  }
+  salida = vec4(c, src.a);
 }`;
 
 export function hayWebGL2(): boolean {
@@ -309,6 +363,8 @@ export class Revelador {
   salida: [number, number] = [0, 0];
   /** Dónde está el encuadre final en el lienzo (viñeta); `null`: el lienzo entero. */
   marco: MarcoVineta | null = null;
+  /** Color puntual resaltado (vista de zonas afectadas); −1: ninguno. */
+  puntoVer = -1;
 
   constructor(readonly lienzo: HTMLCanvasElement) {
     const gl = lienzo.getContext('webgl2', { antialias: false, premultipliedAlpha: false, preserveDrawingBuffer: true });
@@ -368,7 +424,11 @@ export class Revelador {
     gl.uniform1i(this.loc('uWb'), nada || !p.wb ? 0 : 1);
     gl.uniform1f(this.loc('uConK'), nada ? 0 : p.contrastK[0]);
     gl.uniform1i(this.loc('uColor'), nada || !p.color ? 0 : 1);
-    if (nada) gl.uniform1i(this.loc('uVin'), 0);
+    if (nada) {
+      gl.uniform1i(this.loc('uVin'), 0);
+      gl.uniform1i(this.loc('uPuntos'), 0);
+      gl.uniform1i(this.loc('uPuntoVer'), -1);
+    }
     if (p) {
       gl.uniform3fv(this.loc('uGain'), p.gain);
       gl.uniform1f(this.loc('uSat'), p.satVib[0]);
@@ -383,6 +443,14 @@ export class Revelador {
       gl.uniform1fv(this.loc('uLum'), p.lums);
       gl.uniform1f(this.loc('uBlend'), p.blendBalance[0]);
       gl.uniform1f(this.loc('uBal'), p.blendBalance[1]);
+      const n = Math.min(MAX_PUNTUALES, Math.floor((p.puntuales?.length ?? 0) / 9));
+      gl.uniform1i(this.loc('uPuntos'), n);
+      if (n > 0) {
+        const datos = new Float32Array(9 * MAX_PUNTUALES);
+        datos.set(p.puntuales.subarray(0, 9 * n));
+        gl.uniform1fv(this.loc('uPunto'), datos);
+      }
+      gl.uniform1i(this.loc('uPuntoVer'), this.puntoVer < n ? this.puntoVer : -1);
       const v = p.vineta;
       gl.uniform1i(this.loc('uVin'), v && v[0] !== 0 ? 1 : 0);
       if (v && v[0] !== 0) {
@@ -410,13 +478,19 @@ export class Revelador {
 
   /**
    * El color medio (0..1) de un cuadrado de `lado`×`lado` px alrededor de `(x, y)` (píxeles de la salida,
-   * de arriba abajo) **antes** de la mezcla de color y la gradación: lo que el HSL del motor ve
-   * como tono. Se dibuja sin esas etapas, se lee y se vuelve a dibujar tal cual, en el mismo
+   * de arriba abajo) **antes** de la mezcla de color y la gradación (`etapa` 'hsl': lo que el HSL
+   * del motor ve como tono) o antes de los colores puntuales (`etapa` 'puntual'). Se dibuja sin esas etapas, se lee y se vuelve a dibujar tal cual, en el mismo
    * fotograma (no se llega a ver).
    */
-  muestra(p: ParametrosGpu | null, plano: PlanoGpu | null, x: number, y: number, lado = 7): [number, number, number] {
+  muestra(p: ParametrosGpu | null, plano: PlanoGpu | null, x: number, y: number, lado = 7, etapa: 'hsl' | 'puntual' = 'hsl'): [number, number, number] {
     const gl = this.gl;
-    this.dibujar(p ? { ...p, hsl: false, grade: false, vineta: new Float32Array(7) } : null, plano);
+    // Para el color puntual, el color en su etapa: con la mezcla y la gradación, sin colores
+    // puntuales ni viñeta.
+    const sin = { vineta: new Float32Array(7), puntuales: new Float32Array(0) };
+    const ver = this.puntoVer;
+    this.puntoVer = -1;
+    this.dibujar(p ? (etapa === 'hsl' ? { ...p, ...sin, hsl: false, grade: false } : { ...p, ...sin }) : null, plano);
+    this.puntoVer = ver;
     const [w, h] = this.salida;
     const r = (lado - 1) / 2;
     const x0 = Math.max(0, Math.min(w - lado, Math.round(x) - r));

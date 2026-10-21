@@ -129,6 +129,15 @@ locales; exportar 12 MP con el comando entero gasta 770 MB. Por eso:
   - El balance se suma.
 - Son etapas por píxel que ya estaban en el shader y en la exportación, y la prueba de igualdad ya las cubría (también en extremos).
 
+## Color puntual (Color › Puntual)
+
+- Como el Point Color de Lightroom: se elige un color en la foto (toque, o mantener pulsado y apuntar con la lupa) y solo los colores parecidos cambian de tono (±45°), saturación y luminancia. Hasta 8.
+- No existe en el motor: es una etapa de Revela (`efectos.rs`, `aplicar_puntuales`) que va después del revelado del motor (tras el HSL y la gradación) y antes de la viñeta. La GPU hace las mismas cuentas, con la conversión RGB↔HSV del motor.
+- Peso de cada píxel: caídas suaves en tono, saturación y brillo respecto al color elegido. El slider **Rango** (0..100) controla su anchura: tono de 8° a 60°, saturación de 0,15 a 0,75, brillo de 0,2 a 0,8. Los grises no se tocan.
+- El color se mira en su etapa: con la mezcla y la gradación, sin colores puntuales ni viñeta (`Revelador.muestra(…, 'puntual')`).
+- **Ver zonas afectadas** (solo en la previa): la selección con sus colores de antes del ajuste y el resto en gris.
+- En la receta va como `puntuales`, en el mismo JSON de Camera Raw (el motor ignora esa clave). La prueba de igualdad incluye tres recetas con colores puntuales: 412 comparaciones.
+
 ## Viñeta (Efectos)
 
 - El motor centra la viñeta en el trozo que recibe; al exportar por franjas o bloques saldría una por trozo. Revela usa **la misma fórmula** del motor (`apps/revela/src/efectos.rs`) con coordenadas del encuadre final.

@@ -146,6 +146,11 @@ pub fn gpu_params(ajustes_json: &str) -> Result<JsValue, JsError> {
         .and(set("tints", f32s(&tints)))
         .and(set("lums", f32s(&g.lums)))
         .and(set("blendBalance", f32s(&[g.blend, g.balance])))
+        // Colores puntuales: 9 números cada uno [h0, s0, v0, anchoH, anchoS, anchoV, dh, ds, dl].
+        .and(set(
+            "puntuales",
+            f32s(&g.puntuales.iter().flat_map(|p| [p.h0, p.s0, p.v0, p.ancho_h, p.ancho_s, p.ancho_v, p.dh, p.ds, p.dl]).collect::<Vec<_>>()),
+        ))
         // Viñeta: [amt, round, pw, edge0, edge1, hl, estilo] (amt = 0: sin viñeta).
         .and(set(
             "vineta",

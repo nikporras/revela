@@ -203,6 +203,7 @@ impl Editor {
         };
         // Sin recortar a 0..1 hasta después de la viñeta, como el motor (`to_u8` recorta).
         develop(&mut px, w, h, &ajustes.raw, true);
+        efectos::aplicar_puntuales(&mut px, &ajustes.puntuales);
         if ajustes.vineta.activa() {
             ajustes.vineta.plano(plano.ancho, plano.alto).aplicar(&mut px, w, 0, 0);
         }
@@ -341,6 +342,7 @@ fn revelar(doc: &Document, ajustes: &Revelado, geom: &Geometria, canales: usize,
             let y0 = usize::try_from(band.rect.y0 - canvas.y0).map_err(|_| Error("franja fuera de la foto".into()))?;
             let n = band.rect.height() as usize;
             develop(&mut band.px, w, n, &ajustes.raw, true);
+            efectos::aplicar_puntuales(&mut band.px, &ajustes.puntuales);
             if let Some(v) = &vineta {
                 v.aplicar(&mut band.px, w, 0, y0);
             }
@@ -354,6 +356,7 @@ fn revelar(doc: &Document, ajustes: &Revelado, geom: &Geometria, canales: usize,
     let mut hechos = 0.0;
     por_bloques(doc, &plano, |px, u0, v0, tw, th| {
         develop(px, tw, th, &ajustes.raw, true);
+        efectos::aplicar_puntuales(px, &ajustes.puntuales);
         if let Some(v) = &vineta {
             v.aplicar(px, tw, u0 as usize, v0 as usize);
         }
