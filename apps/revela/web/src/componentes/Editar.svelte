@@ -12,17 +12,20 @@
   import Mezcla from './Mezcla.svelte';
   import Gradacion from './Gradacion.svelte';
   import VinetaPanel from './Vineta.svelte';
+  import PuntualPanel from './Puntual.svelte';
   import {
     COLOR,
     LUZ,
     esCurvaNeutra,
     esGradacionNeutra,
     esHslNeutro,
+    esPuntualNeutro,
     type Canal,
     type CanalHsl,
     type IdRueda,
     type IdSlider,
     type Punto,
+    type Puntual,
     type Receta,
     type Rueda,
     type Vineta,
@@ -43,6 +46,14 @@
     onmezcla,
     onbalance,
     onvineta,
+    puntualElegido = $bindable(0),
+    eligiendoPuntual,
+    verPuntual,
+    onelegirPuntual,
+    oncancelarPuntual,
+    onpuntual,
+    onquitarPuntual,
+    onverPuntual,
     onfin,
   }: {
     receta: Receta;
@@ -59,13 +70,25 @@
     onmezcla: (v: number) => void;
     onbalance: (v: number) => void;
     onvineta: (campo: keyof Vineta, v: number) => void;
+    puntualElegido?: number;
+    eligiendoPuntual: { indice: number | null } | null;
+    verPuntual: number;
+    onelegirPuntual: (indice: number | null) => void;
+    oncancelarPuntual: () => void;
+    onpuntual: (indice: number, campo: keyof Puntual, v: number) => void;
+    onquitarPuntual: (indice: number) => void;
+    onverPuntual: (indice: number) => void;
     onfin: () => void;
   } = $props();
 
   const s = $derived(receta.sliders);
   const SECCIONES: { id: Seccion; nombre: string; cambiada: () => boolean }[] = [
     { id: 'luz', nombre: 'Luz', cambiada: () => LUZ.some((id) => s[id] !== 0) },
-    { id: 'color', nombre: 'Color', cambiada: () => COLOR.some((id) => s[id] !== 0) || !esHslNeutro(receta.hsl) || !esGradacionNeutra(receta.gradacion) },
+    {
+      id: 'color',
+      nombre: 'Color',
+      cambiada: () => COLOR.some((id) => s[id] !== 0) || !esHslNeutro(receta.hsl) || !esGradacionNeutra(receta.gradacion) || !receta.puntuales.every(esPuntualNeutro),
+    },
     { id: 'efectos', nombre: 'Efectos', cambiada: () => receta.efectos.vineta.cantidad !== 0 },
     { id: 'curvas', nombre: 'Curvas', cambiada: () => Object.values(receta.curvas).some((c) => !esCurvaNeutra(c)) },
   ];
@@ -88,6 +111,7 @@
     bind:activo={elegidos.color}
     extras={[
       { id: 'mezcla', nombre: 'Mezcla', cambiado: !esHslNeutro(receta.hsl) },
+      { id: 'puntual', nombre: 'Puntual', cambiado: !receta.puntuales.every(esPuntualNeutro) },
       { id: 'gradacion', nombre: 'Gradación', cambiado: !esGradacionNeutra(receta.gradacion) },
     ]}
     {oncambio}
@@ -96,6 +120,19 @@
     {#snippet panel(id)}
       {#if id === 'mezcla'}
         <Mezcla hsl={receta.hsl} bind:banda={bandaMezcla} {directo} {detectadas} {ondirecto} oncambio={onhsl} {onfin} />
+      {:else if id === 'puntual'}
+        <PuntualPanel
+          puntuales={receta.puntuales}
+          bind:elegido={puntualElegido}
+          eligiendo={eligiendoPuntual}
+          ver={verPuntual}
+          onelegir={onelegirPuntual}
+          oncancelar={oncancelarPuntual}
+          oncambio={onpuntual}
+          onquitar={onquitarPuntual}
+          onver={onverPuntual}
+          {onfin}
+        />
       {:else if id === 'gradacion'}
         <Gradacion gradacion={receta.gradacion} {onrueda} {onmezcla} {onbalance} {onfin} />
       {/if}

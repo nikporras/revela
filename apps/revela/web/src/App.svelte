@@ -27,7 +27,7 @@
   import { carpetaRecordada, guardarEnCarpeta, nombreBase as elegirNombreBase, soportaCarpeta } from './lib/guardar';
   import { Revelador, hayWebGL2, type MarcoVineta, type ParametrosGpu, type PlanoGpu } from './lib/gpu';
   import { FILTROS, recetasDeFiltros, type Filtro } from './lib/filtros';
-  import { BANDAS, aCameraRaw, esVacia, nombreVisible, pesosBandas, recetaVacia, tonoYSaturacion, type Canal, type CanalHsl, type IdRueda, type IdSlider, type Punto, type Receta, type Rueda, type Vineta } from './lib/receta';
+  import { BANDAS, aCameraRaw, RANGO_DEFECTO, esVacia, nombreVisible, pesosBandas, recetaVacia, tonoYSaturacion, type Canal, type CanalHsl, type IdRueda, type IdSlider, type Punto, type Puntual, type Receta, type Rueda, type Vineta } from './lib/receta';
   import { probar, recetasDePrueba, TOLERANCIA, type MotorDePrueba } from './lib/autoprueba';
   import type { FormatoExport, InfoFoto, Previa } from './lib/protocolo';
   import {
@@ -311,7 +311,10 @@
     const antes = pestana;
     pestana = p;
     modoLinea = false;
-    if (p !== 'editar') directo = null;
+    if (p !== 'editar') {
+      directo = null;
+      cancelarPuntual();
+    }
     // Entrar o salir de Recortar cambia lo que se dibuja (marco entero / recortado).
     if ((antes === 'recortar') !== (p === 'recortar')) aplicar();
   }
@@ -545,7 +548,7 @@
     }
     // Ajuste de color sobre la foto: el dedo elige el color y lo ajusta (sin arrastre, sin
     // comparar, sin doble toque).
-    if (directo && pestana === 'editar') {
+    if ((directo || eligiendoPuntual) && pestana === 'editar') {
       e.stopPropagation();
       capturar(e.pointerId);
       toque = null;
@@ -702,6 +705,7 @@
 
   function ponerDirecto(c: CanalHsl | null) {
     directo = c;
+    if (c) cancelarPuntual();
     if (!c) {
       fijado = null;
       lupa = null;
@@ -764,7 +768,8 @@
   function apuntar(cx: number, cy: number, conLupa: boolean) {
     const p = puntoPrevia(cx, cy);
     if (!p) return;
-    fijado = colorEn(p[0], p[1]);
+    if (eligiendoPuntual) candidato = muestraPuntual(p[0], p[1]);
+    else fijado = colorEn(p[0], p[1]);
     if (!conLupa || !seccionFoto) return;
     const s = seccionFoto.getBoundingClientRect();
     // La lupa va encima del dedo (si no cabe, debajo), sin salirse de la sección.
@@ -804,8 +809,16 @@
 
   function moverDirecto(e: PointerEvent) {
     const d = dedoDirecto;
-    if (!d || !directo) return;
+    if (!d || (!directo && !eligiendoPuntual)) return;
     if (d.modo === 'apuntar') return apuntar(e.clientX, e.clientY, true);
+    // Eligiendo un color puntual, arrastrar es apuntar (con la lupa).
+    if (eligiendoPuntual) {
+      if (Math.hypot(e.clientX - d.x0, e.clientY - d.y0) < 8) return;
+      clearTimeout(d.temporizador);
+      d.modo = 'apuntar';
+      return apuntar(e.clientX, e.clientY, true);
+    }
+    if (!directo) return;
     if (d.modo === 'espera') {
       if (Math.hypot(e.clientX - d.x0, e.clientY - d.y0) < 8) return;
       // Arrastre: se ajusta el color fijado o, si no hay, el del punto donde empezó.
@@ -836,6 +849,89 @@
     lupa = null;
     if (d.modo === 'espera' && !cancelar) apuntar(d.x0, d.y0, false);
     if (d.modo === 'ajustar') confirmar();
+    // Eligiendo un color puntual: se queda el de la lupa (si tiene color).
+    if (eligiendoPuntual && !cancelar && candidato && candidato.s >= NEUTRO) fijarPuntual(candidato);
+  }
+
+  // --- Color puntual ----------------------------------------------------------------------
+  //
+  // Se elige el color en la foto con la misma lupa (toque o mantener pulsado y apuntar). Se
+  // mira en su etapa: con la mezcla y la gradación, sin colores puntuales ni viñeta.
+
+  /** Se está eligiendo un color en la foto: para uno nuevo (`indice` null) o para ese. */
+  let eligiendoPuntual = $state<{ indice: number | null } | null>(null);
+  let puntualElegido = $state(0);
+  /** El color puntual cuyas zonas se resaltan; −1: ninguno. */
+  let verPuntual = $state(-1);
+  /** El color bajo el dedo mientras se elige. */
+  let candidato = $state<{ h: number; s: number; v: number; css: string; nombre: string } | null>(null);
+
+  function muestraPuntual(x: number, y: number) {
+    const l = lienzoVisible();
+    if (!l) return null;
+    let rgb: [number, number, number];
+    if (usarGpu && revelador) rgb = revelador.muestra(ultimosParams, ultimoPlano, x, y, ZONA_PX, 'puntual');
+    else {
+      const r = (ZONA_PX - 1) / 2;
+      const d = l.getContext('2d')?.getImageData(Math.max(0, x - r), Math.max(0, y - r), ZONA_PX, ZONA_PX).data;
+      if (!d) return null;
+      const suma = [0, 0, 0];
+      for (let i = 0; i < d.length; i += 4) for (let c = 0; c < 3; c++) suma[c] += d[i + c];
+      rgb = suma.map((v) => v / (d.length / 4) / 255) as [number, number, number];
+    }
+    const [h, s, v] = tonoYSaturacion(...rgb);
+    return { h, s, v, css: `rgb(${rgb.map((c) => Math.round(c * 255)).join(' ')})`, nombre: nombreVisible(h, s, v) };
+  }
+
+  function elegirPuntual(indice: number | null) {
+    directo = null;
+    fijado = null;
+    candidato = null;
+    eligiendoPuntual = { indice };
+  }
+
+  function cancelarPuntual() {
+    eligiendoPuntual = null;
+    candidato = null;
+    lupa = null;
+  }
+
+  function fijarPuntual(c: { h: number; s: number; v: number }) {
+    const indice = eligiendoPuntual?.indice ?? null;
+    const color = { tono0: Math.round(c.h * 10) / 10, sat0: Math.round(c.s * 1000) / 1000, brillo0: Math.round(c.v * 1000) / 1000 };
+    if (indice === null) {
+      receta.puntuales = [...receta.puntuales, { ...color, rango: RANGO_DEFECTO, tono: 0, saturacion: 0, luminancia: 0 }];
+      puntualElegido = receta.puntuales.length - 1;
+    } else {
+      receta.puntuales[indice] = { ...receta.puntuales[indice], ...color };
+      puntualElegido = indice;
+    }
+    cancelarPuntual();
+    aplicar();
+    confirmar();
+  }
+
+  function cambiarPuntual(i: number, campo: keyof Puntual, v: number) {
+    receta.puntuales[i][campo] = v;
+    aplicar();
+  }
+
+  function quitarPuntual(i: number) {
+    receta.puntuales = receta.puntuales.filter((_, k) => k !== i);
+    puntualElegido = Math.max(0, Math.min(puntualElegido, receta.puntuales.length - 1));
+    ponerVerPuntual(-1);
+    aplicar();
+    confirmar();
+  }
+
+  /** Resalta las zonas que toca un color puntual (solo en la previa). */
+  function ponerVerPuntual(i: number) {
+    verPuntual = i;
+    if (revelador) revelador.puntoVer = i;
+    if (detalle) detalle.puntoVer = i;
+    if (comparando || !usarGpu) return;
+    revelador?.dibujar(ultimosParams, ultimoPlano);
+    if (cajaDetalle) detalle?.dibujar(ultimosParams, null);
   }
 
   // --- Zona nítida del zoom ---
@@ -1285,6 +1381,19 @@
       </div>
     {/if}
     {#if comparando}<div class="etiqueta">Original</div>{/if}
+    {#if info && eligiendoPuntual && pestana === 'editar' && !comparando}
+      <div class="etiqueta directo" role="status">
+        {#if candidato}
+          <span class="muestra" style:background={candidato.css}></span>
+          <span class="lineas">
+            <span class="visible">{candidato.nombre}</span>
+            {#if candidato.s < NEUTRO}<small>sin color: elige otra zona</small>{/if}
+          </span>
+        {:else}
+          Toca un color · mantén pulsado para la lupa
+        {/if}
+      </div>
+    {/if}
     {#if info && directo && pestana === 'editar' && !comparando}
       <div class="etiqueta directo" role="status">
         {#if fijado}
@@ -1397,6 +1506,14 @@
             onmezcla={cambiarMezcla}
             onbalance={cambiarBalance}
             onvineta={cambiarVineta}
+            bind:puntualElegido
+            {eligiendoPuntual}
+            {verPuntual}
+            onelegirPuntual={elegirPuntual}
+            oncancelarPuntual={cancelarPuntual}
+            onpuntual={cambiarPuntual}
+            onquitarPuntual={quitarPuntual}
+            onverPuntual={ponerVerPuntual}
             onfin={confirmar}
           />
         {:else}

@@ -125,7 +125,7 @@ En línea: https://nikporras.github.io/revela/ (versión `d1c3c67`). Cada push a
 
 ### Lo siguiente (en este orden)
 
-1. **Color puntual** en Editar › Color (como Point Color de Lightroom): color exacto con la lupa, ancho del rango ajustable, tono, saturación y luminancia solo de ese color, vista que resalte las zonas afectadas, y varios colores puntuales.
+1. **Color puntual** (hecho, falta probar en el S25) en Editar › Color › Puntual (como Point Color de Lightroom): color exacto con la lupa, Rango, tono, saturación y luminancia solo de ese color, vista de zonas afectadas, y hasta 8 colores puntuales.
 2. **Grano** (Efectos). El ruido lo calcula el motor como textura; es aproximado a tamaño de pantalla y exacto al 100 %, con la nota "Míralo al 100 % (doble toque)".
 3. **Volver a traducir los filtros de LightCraft:** vuelven 6 de los 16 excluidos (los que dependen de viñeta y grano).
 4. **Nitidez** (Efectos). Bloques con margen al exportar y varias pasadas en la GPU. Aproximada a tamaño de pantalla y exacta al 100 %, con la misma nota.

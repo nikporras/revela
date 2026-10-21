@@ -145,6 +145,25 @@ export interface Vineta {
   luces: number;
 }
 
+/**
+ * Un color puntual (como el Point Color de Lightroom): el color elegido (HSV, tono 0..360,
+ * saturación y brillo 0..1), lo ancho del rango de colores parecidos (0..100) y los cambios
+ * (−100..100) que reciben solo esos colores.
+ */
+export interface Puntual {
+  tono0: number;
+  sat0: number;
+  brillo0: number;
+  rango: number;
+  tono: number;
+  saturacion: number;
+  luminancia: number;
+}
+
+export const RANGO_DEFECTO = 50;
+
+export const esPuntualNeutro = (p: Puntual) => p.tono === 0 && p.saturacion === 0 && p.luminancia === 0;
+
 export const VINETA_DEFECTO: Vineta = { cantidad: 0, punto: 50, redondez: 0, difuminado: 50, luces: 0 };
 
 export type Punto = [number, number];
@@ -160,6 +179,8 @@ export interface Receta {
   hsl: Record<CanalHsl, number[]>;
   gradacion: Gradacion;
   efectos: { vineta: Vineta };
+  /** Colores puntuales (como mucho 8), en orden. */
+  puntuales: Puntual[];
 }
 
 export const DIAGONAL: Punto[] = [
@@ -176,6 +197,7 @@ export function recetaVacia(): Receta {
     hsl: { tono: ceros(), saturacion: ceros(), luminancia: ceros() },
     gradacion: gradacionVacia(),
     efectos: { vineta: { ...VINETA_DEFECTO } },
+    puntuales: [],
   };
 }
 
@@ -202,7 +224,7 @@ export function esCurvaNeutra(c: Punto[]): boolean {
 }
 
 export function esVacia(r: Receta): boolean {
-  return Object.values(r.sliders).every((v) => v === 0) && Object.values(r.curvas).every(esCurvaNeutra) && !r.filtro && esGeometriaVacia(r.geometria) && esHslNeutro(r.hsl) && esGradacionNeutra(r.gradacion) && r.efectos.vineta.cantidad === 0;
+  return Object.values(r.sliders).every((v) => v === 0) && Object.values(r.curvas).every(esCurvaNeutra) && !r.filtro && esGeometriaVacia(r.geometria) && esHslNeutro(r.hsl) && esGradacionNeutra(r.gradacion) && r.efectos.vineta.cantidad === 0 && r.puntuales.every(esPuntualNeutro);
 }
 
 type Ajustes = Record<string, unknown>;
@@ -262,6 +284,8 @@ export function aCameraRaw(r: Receta, filtros: Filtro[]): Ajustes {
     const f = (out[CLAVE_RUEDA[id]] as { hue: number; sat: number; lum: number } | undefined) ?? { hue: 0, sat: 0, lum: 0 };
     out[CLAVE_RUEDA[id]] = sumarRuedas(f, u);
   }
+  // Colores puntuales: los del usuario tal cual (el núcleo los lee de `puntuales`).
+  if (r.puntuales.length) out.puntuales = r.puntuales.map((p) => ({ ...p }));
   // Viñeta: la cantidad se suma a la del filtro; la forma, si el usuario puso viñeta, es la suya.
   const v = r.efectos.vineta;
   if (v.cantidad !== 0) {

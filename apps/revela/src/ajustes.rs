@@ -13,7 +13,7 @@
 
 use photocraft_algo::camera_raw::{CameraRaw, Wheel, curve_lut, develop, validate_curve};
 
-use crate::efectos::Vineta;
+use crate::efectos::{ConstPuntual, MAX_PUNTUALES, Puntual, Vineta};
 use crate::{Error, Result};
 
 /// Todo lo que se aplica al revelar: los ajustes por píxel del motor y la viñeta (que Revela
@@ -21,14 +21,25 @@ use crate::{Error, Result};
 #[derive(Debug, Clone, Default)]
 pub struct Revelado {
     pub raw: CameraRaw,
+    /// Colores puntuales, en orden.
+    pub puntuales: Vec<ConstPuntual>,
     pub vineta: Vineta,
+}
+
+/// Lo que Revela añade a la receta de Camera Raw (el motor lo ignora).
+#[derive(serde::Deserialize, Default)]
+#[serde(default)]
+struct Extras {
+    puntuales: Vec<Puntual>,
 }
 
 /// La receta del usuario (JSON de Camera Raw) lista para revelar.
 pub fn revelado(json: &str) -> Result<Revelado> {
     let raw = sanear(json)?;
     let p: CameraRaw = serde_json::from_str(json).map_err(|e| Error(format!("ajustes no válidos: {e}")))?;
-    Ok(Revelado { raw, vineta: Vineta::de(&p) })
+    let extras: Extras = serde_json::from_str(json).map_err(|e| Error(format!("ajustes no válidos: {e}")))?;
+    let puntuales = extras.puntuales.iter().take(MAX_PUNTUALES).map(Puntual::constantes).collect();
+    Ok(Revelado { raw, puntuales, vineta: Vineta::de(&p) })
 }
 
 /// Entradas de cada curva que recibe el shader (las mismas que usa `develop`).
@@ -101,6 +112,8 @@ pub struct Gpu {
     pub balance: f32,
     /// La viñeta (sus constantes; la posición la pone la interfaz según el encuadre).
     pub vineta: Option<crate::efectos::Constantes>,
+    /// Los colores puntuales (como mucho `MAX_PUNTUALES`).
+    pub puntuales: Vec<ConstPuntual>,
 }
 
 fn luma(c: [f32; 3]) -> f32 {
@@ -113,7 +126,7 @@ fn is_linear(c: &[[f32; 2]]) -> bool {
 
 impl Gpu {
     pub fn de_revelado(r: &Revelado) -> Gpu {
-        Gpu { vineta: r.vineta.activa().then(|| r.vineta.constantes()), ..Gpu::de(&r.raw) }
+        Gpu { vineta: r.vineta.activa().then(|| r.vineta.constantes()), puntuales: r.puntuales.clone(), ..Gpu::de(&r.raw) }
     }
 
     pub fn de(p: &CameraRaw) -> Gpu {
@@ -161,6 +174,7 @@ impl Gpu {
             blend: 0.15 + p.grade_blending.clamp(0.0, 100.0) / 100.0 * 0.35,
             balance: p.grade_balance.clamp(-100.0, 100.0) / 100.0 * 0.25,
             vineta: None,
+            puntuales: Vec::new(),
         }
     }
 }
